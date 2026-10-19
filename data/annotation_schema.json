@@ -1,0 +1,240 @@
+{
+  "schema_version": "1.0",
+  "name": "BBN Empathy Annotation Schema",
+  "description": "Annotation schema for Breaking Bad News conversations based on Appraisal Framework for Clinical Empathy",
+
+  "patient_labels": {
+    "empathic_opportunities": {
+      "description": "Expressions or behaviors that reveal a patient's feelings or views",
+      "categories": {
+        "feeling": {
+          "explicit": {
+            "label": "explicit_feeling",
+            "color": "#FF6B6B",
+            "description": "Direct expression of emotion, emotive behavior, or mental state",
+            "examples": ["I'm sad", "I cried", "I'm in pain", "I feel alone"]
+          },
+          "implicit": {
+            "label": "implicit_feeling",
+            "color": "#FF8E8E",
+            "description": "Indirect expression of feeling through references to experiences",
+            "examples": ["My aunt had the same condition and didn't make it", "Everything was going well until..."]
+          }
+        },
+        "appreciation": {
+          "explicit": {
+            "label": "explicit_appreciation",
+            "color": "#4ECDC4",
+            "description": "Direct attitude toward things, events, actions, or behaviors",
+            "examples": ["The MRI was boring", "The medication is not helping me"]
+          },
+          "implicit": {
+            "label": "implicit_appreciation",
+            "color": "#7ED8D3",
+            "description": "Indirect attitude toward things, events, actions, or behaviors",
+            "examples": ["My symptoms don't seem to improve with the medication"]
+          }
+        },
+        "judgement": {
+          "explicit": {
+            "label": "explicit_judgement",
+            "color": "#45B7D1",
+            "description": "Direct attitude toward self or others",
+            "examples": ["I'm not good at medication adherence", "The nurses weren't helpful"]
+          },
+          "implicit": {
+            "label": "implicit_judgement",
+            "color": "#73C8DF",
+            "description": "Indirect attitude toward self or others",
+            "examples": ["I'm not very consistent about taking my medication"]
+          }
+        }
+      }
+    }
+  },
+
+  "clinician_labels": {
+    "elicitations": {
+      "description": "Clinician attempts to elicit patient's feelings and perspectives",
+      "categories": {
+        "feeling": {
+          "direct": {
+            "label": "direct_elicitation_feeling",
+            "color": "#96CEB4",
+            "description": "Direct inquiry about patient's emotions or mental state",
+            "examples": ["How do you feel about that?", "What was your reaction?"]
+          },
+          "indirect": {
+            "label": "indirect_elicitation_feeling",
+            "color": "#B4DFC9",
+            "description": "Indirect inquiry about experiences or emotive behaviors",
+            "examples": ["So you're worried that the treatment won't work"]
+          }
+        },
+        "appreciation": {
+          "direct": {
+            "label": "direct_elicitation_appreciation",
+            "color": "#FFEAA7",
+            "description": "Direct inquiry about patient's appreciation of things/events",
+            "examples": ["How was the MRI for you?", "Do you find the medication helpful?"]
+          },
+          "indirect": {
+            "label": "indirect_elicitation_appreciation",
+            "color": "#FFF3C4",
+            "description": "Indirect exploration of preferences",
+            "examples": ["It sounds like the medication isn't helping"]
+          }
+        },
+        "judgement": {
+          "direct": {
+            "label": "direct_elicitation_judgement",
+            "color": "#DDA0DD",
+            "description": "Direct inquiry about patient's judgement of self or others",
+            "examples": ["Do you think you are a good father?", "Was the nurse helpful?"]
+          },
+          "indirect": {
+            "label": "indirect_elicitation_judgement",
+            "color": "#E8C4E8",
+            "description": "Indirect inquiry about behaviors or interpretations",
+            "examples": ["So the nurse was not very helpful then?"]
+          }
+        }
+      }
+    },
+
+    "responses": {
+      "description": "Clinician's empathic responses to patient cues",
+      "categories": {
+        "acceptance": {
+          "unconditional_positive_regard": {
+            "explicit_positive_judgement": {
+              "label": "acceptance_positive_regard_explicit_judgement",
+              "color": "#98D8C8",
+              "description": "Expression of positive judgment of the patient as a person",
+              "examples": ["You are a reasonable parent", "You're very responsible"]
+            },
+            "implicit_positive_judgement": {
+              "label": "acceptance_positive_regard_implicit_judgement",
+              "color": "#ADE3D5",
+              "description": "Expression of judgement of patient's thoughts or feelings",
+              "examples": ["It's really great that you've been taking care of your parents"]
+            },
+            "repetition": {
+              "label": "acceptance_positive_regard_repetition",
+              "color": "#C2EDE2",
+              "description": "Repeating or paraphrasing patient's words without countering",
+              "examples": ["I understand you're worried about the cancer spreading"]
+            },
+            "allowing_full_expression": {
+              "label": "acceptance_positive_regard_allowing",
+              "color": "#D7F7EF",
+              "description": "Allowing patients to express feelings fully",
+              "examples": ["Minimal responses, nodding, avoidance of interruption"]
+            }
+          },
+          "neutral_support": {
+            "explicit_appreciation": {
+              "label": "acceptance_neutral_support_appreciation",
+              "color": "#F7DC6F",
+              "description": "Appreciation of ideas, feelings, or behaviors regarding normality",
+              "examples": ["It's completely normal to be upset about this"]
+            },
+            "explicit_judgement": {
+              "label": "acceptance_neutral_support_judgement",
+              "color": "#F9E79F",
+              "description": "Denying negative self-assessment by the patient",
+              "examples": ["You're not crazy for being worried about that"]
+            }
+          }
+        },
+        "sharing": {
+          "feeling": {
+            "label": "sharing_feeling",
+            "color": "#BB8FCE",
+            "description": "Sharing patient feelings through expressed agreement",
+            "examples": ["I'm sure I would also feel anxious in this situation"]
+          },
+          "appreciation": {
+            "label": "sharing_appreciation",
+            "color": "#D2B4DE",
+            "description": "Sharing patient views through expressed agreement",
+            "examples": ["Yes, this medication really does not taste good"]
+          },
+          "judgement": {
+            "label": "sharing_judgement",
+            "color": "#E8DAEF",
+            "description": "Sharing patient judgements through expressed agreement",
+            "examples": ["Oh, no!"]
+          }
+        },
+        "understanding": {
+          "feeling": {
+            "label": "understanding_feeling",
+            "color": "#85C1E9",
+            "description": "Understanding and acknowledgement of patient's feelings",
+            "examples": ["I understand that you're worried about infections"]
+          },
+          "appreciation": {
+            "label": "understanding_appreciation",
+            "color": "#A9CCE3",
+            "description": "Understanding and acknowledgement of patient's views",
+            "examples": ["I see that the medication isn't working for you"]
+          },
+          "judgement": {
+            "label": "understanding_judgement",
+            "color": "#D4E6F1",
+            "description": "Understanding and acknowledgement of patient's judgements",
+            "examples": ["I get the sense that you found the other doctor unhelpful"]
+          }
+        }
+      }
+    }
+  },
+
+  "spikes_stages": {
+    "description": "SPIKES Protocol stages for Breaking Bad News conversations",
+    "stages": {
+      "setting": {
+        "label": "setting",
+        "color": "#E74C3C",
+        "description": "Establishing time, place, and environment"
+      },
+      "perception": {
+        "label": "perception",
+        "color": "#E67E22",
+        "description": "Understanding patient's current knowledge"
+      },
+      "invitation": {
+        "label": "invitation",
+        "color": "#F1C40F",
+        "description": "Assessing how much information patient wants"
+      },
+      "knowledge": {
+        "label": "knowledge",
+        "color": "#27AE60",
+        "description": "Delivering medical information"
+      },
+      "empathy": {
+        "label": "empathy",
+        "color": "#3498DB",
+        "description": "Responding to patient emotions"
+      },
+      "strategy": {
+        "label": "strategy",
+        "color": "#9B59B6",
+        "description": "Discussing treatment plans"
+      }
+    }
+  },
+
+  "relation_types": {
+    "response_to": {
+      "description": "Clinician response to patient EO",
+      "color": "#2ECC71"
+    },
+    "elicitation_of": {
+      "description": "Clinician elicitation prompting EO",
+      "color": "#3498DB"
+    }
+  }
+}

@@ -1,0 +1,401 @@
+{
+  "id": "conv_001",
+  "metadata": {
+    "scenario": "MRI finding - brain mass",
+    "language": "en",
+    "date": "2024-01-15"
+  },
+  "turns": [
+    {
+      "turn_id": 1,
+      "speaker": "clinician",
+      "text": "Hello, I'm Dr. Smith. Thank you for coming in today. Do you know why we called you in?",
+      "annotations": {
+        "spikes_stage": "setting",
+        "spans": []
+      }
+    },
+    {
+      "turn_id": 2,
+      "speaker": "patient",
+      "text": "Well, I wasn't expecting to be called back. I just participated in that MRI study last week for the extra money.",
+      "annotations": {
+        "spans": [
+          {
+            "span_id": "eo_1",
+            "text": "I wasn't expecting to be called back",
+            "start": 6,
+            "end": 42,
+            "label": "implicit_feeling",
+            "attitude": "feeling",
+            "explicitness": "implicit",
+            "inferred_emotion": "surprise/confusion"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 3,
+      "speaker": "clinician",
+      "text": "I see. And how was that experience for you?",
+      "annotations": {
+        "spikes_stage": "perception",
+        "spans": [
+          {
+            "span_id": "el_1",
+            "text": "how was that experience for you",
+            "start": 12,
+            "end": 43,
+            "label": "direct_elicitation_appreciation",
+            "attitude": "appreciation",
+            "directness": "direct"
+          }
+        ],
+        "relations": [
+          {
+            "from": "el_1",
+            "to": "eo_1",
+            "type": "elicitation_of"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 4,
+      "speaker": "patient",
+      "text": "Well, kinda boring honestly, but it wasn't bad for 60 euros. Why? Is something wrong?",
+      "annotations": {
+        "spans": [
+          {
+            "span_id": "eo_2",
+            "text": "kinda boring honestly",
+            "start": 6,
+            "end": 27,
+            "label": "explicit_appreciation",
+            "attitude": "appreciation",
+            "explicitness": "explicit"
+          },
+          {
+            "span_id": "eo_3",
+            "text": "Is something wrong?",
+            "start": 66,
+            "end": 85,
+            "label": "implicit_feeling",
+            "attitude": "feeling",
+            "explicitness": "implicit",
+            "inferred_emotion": "worry/anxiety"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 5,
+      "speaker": "clinician",
+      "text": "Before I share the results, I want to understand how much you'd like to know today. Some people prefer all the details, others prefer just the key points. What would work best for you?",
+      "annotations": {
+        "spikes_stage": "invitation",
+        "spans": [
+          {
+            "span_id": "el_2",
+            "text": "how much you'd like to know today",
+            "start": 43,
+            "end": 76,
+            "label": "direct_elicitation_appreciation",
+            "attitude": "appreciation",
+            "directness": "direct"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 6,
+      "speaker": "patient",
+      "text": "I... I want to know everything. Just tell me what's going on. You're making me nervous.",
+      "annotations": {
+        "spans": [
+          {
+            "span_id": "eo_4",
+            "text": "I want to know everything",
+            "start": 5,
+            "end": 30,
+            "label": "explicit_appreciation",
+            "attitude": "appreciation",
+            "explicitness": "explicit"
+          },
+          {
+            "span_id": "eo_5",
+            "text": "You're making me nervous",
+            "start": 62,
+            "end": 86,
+            "label": "explicit_feeling",
+            "attitude": "feeling",
+            "explicitness": "explicit",
+            "emotion": "anxiety/nervousness"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 7,
+      "speaker": "clinician",
+      "text": "I understand you're feeling anxious, and I'm sorry for that. I need to share some difficult news with you. The MRI showed a mass in your brain that we need to investigate further.",
+      "annotations": {
+        "spikes_stage": "knowledge",
+        "spans": [
+          {
+            "span_id": "resp_1",
+            "text": "I understand you're feeling anxious",
+            "start": 0,
+            "end": 35,
+            "label": "understanding_feeling",
+            "response_type": "understanding",
+            "attitude": "feeling"
+          },
+          {
+            "span_id": "resp_2",
+            "text": "I'm sorry for that",
+            "start": 41,
+            "end": 59,
+            "label": "sharing_feeling",
+            "response_type": "sharing",
+            "attitude": "feeling"
+          }
+        ],
+        "relations": [
+          {
+            "from": "resp_1",
+            "to": "eo_5",
+            "type": "response_to"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 8,
+      "speaker": "patient",
+      "text": "A mass? What... what do you mean? Like a tumor? This can't be right. There must be some mistake. I feel fine!",
+      "annotations": {
+        "spans": [
+          {
+            "span_id": "eo_6",
+            "text": "This can't be right. There must be some mistake",
+            "start": 40,
+            "end": 87,
+            "label": "implicit_feeling",
+            "attitude": "feeling",
+            "explicitness": "implicit",
+            "inferred_emotion": "disbelief/denial"
+          },
+          {
+            "span_id": "eo_7",
+            "text": "I feel fine",
+            "start": 89,
+            "end": 100,
+            "label": "explicit_feeling",
+            "attitude": "feeling",
+            "explicitness": "explicit"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 9,
+      "speaker": "clinician",
+      "text": "I can see this is a shock. It's completely normal to feel this way. You can't quite believe it yet, and that's understandable.",
+      "annotations": {
+        "spikes_stage": "empathy",
+        "spans": [
+          {
+            "span_id": "resp_3",
+            "text": "I can see this is a shock",
+            "start": 0,
+            "end": 25,
+            "label": "understanding_feeling",
+            "response_type": "understanding",
+            "attitude": "feeling"
+          },
+          {
+            "span_id": "resp_4",
+            "text": "It's completely normal to feel this way",
+            "start": 27,
+            "end": 66,
+            "label": "acceptance_neutral_support_appreciation",
+            "response_type": "acceptance",
+            "subtype": "neutral_support",
+            "attitude": "appreciation"
+          },
+          {
+            "span_id": "resp_5",
+            "text": "that's understandable",
+            "start": 104,
+            "end": 125,
+            "label": "acceptance_neutral_support_appreciation",
+            "response_type": "acceptance",
+            "subtype": "neutral_support",
+            "attitude": "appreciation"
+          }
+        ],
+        "relations": [
+          {
+            "from": "resp_3",
+            "to": "eo_6",
+            "type": "response_to"
+          },
+          {
+            "from": "resp_4",
+            "to": "eo_6",
+            "type": "response_to"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 10,
+      "speaker": "patient",
+      "text": "My aunt... she had a brain tumor three years ago. It was awful. She suffered so much, and then... she didn't make it. My family is still not over it.",
+      "annotations": {
+        "spans": [
+          {
+            "span_id": "eo_8",
+            "text": "My aunt... she had a brain tumor three years ago. It was awful. She suffered so much, and then... she didn't make it",
+            "start": 0,
+            "end": 116,
+            "label": "implicit_feeling",
+            "attitude": "feeling",
+            "explicitness": "implicit",
+            "inferred_emotion": "fear/grief"
+          },
+          {
+            "span_id": "eo_9",
+            "text": "My family is still not over it",
+            "start": 118,
+            "end": 148,
+            "label": "implicit_judgement",
+            "attitude": "judgement",
+            "explicitness": "implicit"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 11,
+      "speaker": "clinician",
+      "text": "I'm so sorry about your aunt. That must have been incredibly difficult for your whole family. I want you to know that every case is different, and we don't yet know exactly what we're dealing with here.",
+      "annotations": {
+        "spikes_stage": "empathy",
+        "spans": [
+          {
+            "span_id": "resp_6",
+            "text": "I'm so sorry about your aunt",
+            "start": 0,
+            "end": 28,
+            "label": "sharing_feeling",
+            "response_type": "sharing",
+            "attitude": "feeling"
+          },
+          {
+            "span_id": "resp_7",
+            "text": "That must have been incredibly difficult for your whole family",
+            "start": 30,
+            "end": 92,
+            "label": "understanding_feeling",
+            "response_type": "understanding",
+            "attitude": "feeling"
+          }
+        ],
+        "relations": [
+          {
+            "from": "resp_6",
+            "to": "eo_8",
+            "type": "response_to"
+          },
+          {
+            "from": "resp_7",
+            "to": "eo_9",
+            "type": "response_to"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 12,
+      "speaker": "patient",
+      "text": "How am I supposed to tell my family about this? I can't just go home and say I might have cancer. They'll fall apart.",
+      "annotations": {
+        "spans": [
+          {
+            "span_id": "eo_10",
+            "text": "How am I supposed to tell my family about this?",
+            "start": 0,
+            "end": 47,
+            "label": "implicit_feeling",
+            "attitude": "feeling",
+            "explicitness": "implicit",
+            "inferred_emotion": "anxiety/helplessness"
+          },
+          {
+            "span_id": "eo_11",
+            "text": "They'll fall apart",
+            "start": 98,
+            "end": 116,
+            "label": "implicit_appreciation",
+            "attitude": "appreciation",
+            "explicitness": "implicit"
+          }
+        ]
+      }
+    },
+    {
+      "turn_id": 13,
+      "speaker": "clinician",
+      "text": "That's a very important concern, and it's clear how much you care about your family. We can talk about how to approach that conversation when you're ready. You don't have to face this alone.",
+      "annotations": {
+        "spikes_stage": "strategy",
+        "spans": [
+          {
+            "span_id": "resp_8",
+            "text": "That's a very important concern",
+            "start": 0,
+            "end": 31,
+            "label": "acceptance_neutral_support_appreciation",
+            "response_type": "acceptance",
+            "subtype": "neutral_support",
+            "attitude": "appreciation"
+          },
+          {
+            "span_id": "resp_9",
+            "text": "it's clear how much you care about your family",
+            "start": 37,
+            "end": 83,
+            "label": "acceptance_positive_regard_implicit_judgement",
+            "response_type": "acceptance",
+            "subtype": "unconditional_positive_regard",
+            "attitude": "judgement"
+          },
+          {
+            "span_id": "resp_10",
+            "text": "You don't have to face this alone",
+            "start": 156,
+            "end": 189,
+            "label": "acceptance_positive_regard_explicit_judgement",
+            "response_type": "acceptance",
+            "subtype": "unconditional_positive_regard",
+            "attitude": "judgement"
+          }
+        ],
+        "relations": [
+          {
+            "from": "resp_8",
+            "to": "eo_10",
+            "type": "response_to"
+          },
+          {
+            "from": "resp_9",
+            "to": "eo_11",
+            "type": "response_to"
+          }
+        ]
+      }
+    }
+  ]
+}

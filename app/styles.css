@@ -1,0 +1,245 @@
+/* BBN Annotation Tool Styles */
+
+/* CSS Variables for theming */
+:root {
+    --bg-patient: #f8f4ff;
+    --bg-clinician: #f0fdf4;
+    --bg-selectable: #f8fafc;
+    --bg-suggestion: #fffbeb;
+    --bg-relation: #eff6ff;
+    --bg-undo: #fef2f2;
+    --bg-count-badge: #e0e7ff;
+    --bg-relations-badge: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+    --text-primary: #1e293b;
+    --text-secondary: #64748b;
+    --text-patient: #7c3aed;
+    --text-clinician: #16a34a;
+    --text-relation: #1e40af;
+    --text-count-badge: #4338ca;
+    --border-patient: #8b5cf6;
+    --border-clinician: #22c55e;
+    --border-light: #e2e8f0;
+    --border-suggestion: #fcd34d;
+    --border-relation: #bfdbfe;
+    --border-undo: #fecaca;
+    --border-relations-badge: #93c5fd;
+    --text-undo: #dc2626;
+}
+
+/* Dark mode overrides */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-patient: #2d2640;
+        --bg-clinician: #1a2f23;
+        --bg-selectable: #1e293b;
+        --bg-suggestion: #3d3520;
+        --bg-relation: #1e2a3d;
+        --bg-undo: #3d2020;
+        --bg-count-badge: #2e3a5f;
+        --bg-relations-badge: linear-gradient(135deg, #1e3a5f 0%, #2a4a6f 100%);
+        --text-primary: #e2e8f0;
+        --text-secondary: #94a3b8;
+        --text-patient: #a78bfa;
+        --text-clinician: #4ade80;
+        --text-relation: #60a5fa;
+        --text-count-badge: #818cf8;
+        --border-patient: #8b5cf6;
+        --border-clinician: #22c55e;
+        --border-light: #334155;
+        --border-suggestion: #b8960a;
+        --border-relation: #3b82f6;
+        --border-undo: #b91c1c;
+        --border-relations-badge: #3b82f6;
+        --text-undo: #f87171;
+    }
+}
+
+/* Streamlit dark theme detection */
+[data-testid="stAppViewContainer"][data-theme="dark"],
+.stApp[data-theme="dark"] {
+    --bg-patient: #2d2640;
+    --bg-clinician: #1a2f23;
+    --bg-selectable: #1e293b;
+    --bg-suggestion: #3d3520;
+    --bg-relation: #1e2a3d;
+    --bg-undo: #3d2020;
+    --bg-count-badge: #2e3a5f;
+    --bg-relations-badge: linear-gradient(135deg, #1e3a5f 0%, #2a4a6f 100%);
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-patient: #a78bfa;
+    --text-clinician: #4ade80;
+    --text-relation: #60a5fa;
+    --text-count-badge: #818cf8;
+    --border-patient: #8b5cf6;
+    --border-clinician: #22c55e;
+    --border-light: #334155;
+    --border-suggestion: #b8960a;
+    --border-relation: #3b82f6;
+    --border-undo: #b91c1c;
+    --border-relations-badge: #3b82f6;
+    --text-undo: #f87171;
+}
+
+/* Reduce default Streamlit spacing */
+.block-container {
+    padding-top: 1rem;
+}
+.element-container {
+    margin-bottom: 0;
+}
+
+/* Tighter info/caption spacing */
+.stAlert {
+    margin-bottom: 0.25rem;
+}
+.stCaption {
+    margin-top: 0;
+    margin-bottom: 0.25rem;
+}
+hr {
+    margin: 0.25rem 0;
+}
+
+/* Tighter button spacing */
+.stColumns {
+    margin-top: 0.25rem;
+    margin-bottom: 0.5rem;
+}
+
+/* Turn cards - Clean, minimal design */
+.patient-turn {
+    background: var(--bg-patient);
+    padding: 16px 20px;
+    border-radius: 8px;
+    margin: 4px 0;
+    border-left: 4px solid var(--border-patient);
+}
+.clinician-turn {
+    background: var(--bg-clinician);
+    padding: 16px 20px;
+    border-radius: 8px;
+    margin: 4px 0;
+    border-left: 4px solid var(--border-clinician);
+}
+.speaker-label {
+    font-weight: 600;
+    font-size: 0.85em;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+}
+.patient-turn .speaker-label { color: var(--text-patient); }
+.clinician-turn .speaker-label { color: var(--text-clinician); }
+.turn-text {
+    font-size: 1em;
+    line-height: 1.6;
+    color: var(--text-primary);
+}
+.annotation-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    margin: 2px;
+    color: #1e293b;
+    font-weight: 500;
+}
+.highlight-span {
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-weight: 500;
+    color: #1e293b;
+}
+.annotation-section {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-light);
+    font-size: 0.85em;
+}
+
+/* Modal text display */
+.selectable-text {
+    background: var(--bg-selectable);
+    padding: 16px;
+    border-radius: 8px;
+    margin: 10px 0;
+    color: var(--text-primary);
+    font-size: 1em;
+    line-height: 1.7;
+    border: 1px solid var(--border-light);
+    cursor: text;
+    user-select: text;
+}
+
+/* AI suggestion cards */
+.ai-suggestion {
+    background: var(--bg-suggestion);
+    padding: 12px;
+    border-radius: 8px;
+    margin: 8px 0;
+    border: 1px solid var(--border-suggestion);
+    color: var(--text-primary);
+}
+
+/* Relation items */
+.relation-item {
+    background: var(--bg-relation);
+    padding: 10px 14px;
+    border-radius: 6px;
+    margin: 6px 0;
+    border: 1px solid var(--border-relation);
+    font-size: 0.9em;
+    color: var(--text-relation);
+    font-weight: 500;
+}
+.relation-item .rel-arrow {
+    color: var(--text-secondary);
+    margin: 0 8px;
+}
+.relation-item .rel-type {
+    background: var(--bg-relation);
+    padding: 2px 8px;
+    border-radius: 4px;
+    color: var(--text-relation);
+}
+
+/* Undo button styling */
+.undo-btn {
+    background: var(--bg-undo);
+    border: 1px solid var(--border-undo);
+    color: var(--text-undo);
+    padding: 4px 12px;
+    border-radius: 6px;
+    font-size: 0.85em;
+}
+
+/* Clean button styles */
+.stButton > button {
+    border-radius: 6px;
+    font-weight: 500;
+}
+
+/* Annotation count badge */
+.count-badge {
+    background: var(--bg-count-badge);
+    color: var(--text-count-badge);
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
+/* Relations badge */
+.relations-badge {
+    display: inline-block;
+    background: var(--bg-relations-badge);
+    color: var(--text-relation);
+    padding: 8px 14px;
+    border-radius: 20px;
+    font-size: 0.85em;
+    font-weight: 600;
+    border: 1px solid var(--border-relations-badge);
+    margin-top: 0;
+}
