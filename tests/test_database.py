@@ -177,3 +177,94 @@ def test_ai_suggestions_tracking():
     assert len(all_sugs) == 1
     assert all_sugs[0].status == "accepted"
     assert all_sugs[0].expert_id == expert.id
+
+
+def test_spikes_annotation_null_expert_upsert_no_duplicate_rows():
+    """Regression Test: Setting spikes stage with expert_id=None must not create duplicate zombie rows."""
+    conv = create_conversation(external_id="conv_spikes_null_001")
+    t1 = create_turn(conv.id, 1, "clinician", "Let's review your scan results.")
+
+    # 1. Set stage to 'setting'
+    s1 = set_spikes_annotation(t1.id, "setting", expert_id=None)
+    assert s1 is not None
+    assert s1.stage == "setting"
+
+    # 2. Update stage to 'knowledge' (with expert_id=None)
+    s2 = set_spikes_annotation(t1.id, "knowledge", expert_id=None)
+    assert s2 is not None
+    assert s2.stage == "knowledge"
+
+    # Query DB directly to count rows
+    with db_conn.get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM spikes_annotations WHERE turn_id = ?", (t1.id,))
+        rows = cursor.fetchall()
+        assert len(rows) == 1
+        assert rows[0]["stage"] == "knowledge"
+
+    # 3. Clear stage with None
+    set_spikes_annotation(t1.id, None, expert_id=None)
+    with db_conn.get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM spikes_annotations WHERE turn_id = ?", (t1.id,))
+        rows = cursor.fetchall()
+        assert len(rows) == 0
+
+
+def test_database_transaction_rollback_on_failure():
+    """Verify that exceptions raised inside get_db() trigger rollback and release the connection."""
+    conv = create_conversation(external_id="conv_rollback_001")
+    turn = create_turn(conv.id, 1, "patient", "Initial text")
+
+    try:
+        with db_conn.get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO span_annotations (turn_id, span_id, text, start_pos, end_pos, label) VALUES (?, ?, ?, ?, ?, ?)",
+                (turn.id, "s_temp", "text", 0, 4, "explicit_feeling"),
+            )
+            # Intentionally raise an exception mid-transaction
+            raise RuntimeError("Simulated mid-transaction failure")
+    except RuntimeError:
+        pass
+
+    # Verify that 's_temp' was rolled back and is not in the database
+    spans = get_span_annotations(turn.id)
+    assert len(spans) == 0
+
+
+def test_duplicate_conversation_external_id_rejected():
+    """Verify that creating two conversations with the same external_id raises IntegrityError."""
+    create_conversation(external_id="unique_conv_001")
+    with pytest.raises(sqlite3.IntegrityError):
+        create_conversation(external_id="unique_conv_001")
+
+
+def test_cascade_delete_conversation_removes_turns_and_spans():
+    """Verify that deleting a conversation cascades to turns and spans via foreign keys."""
+    conv = create_conversation(external_id="conv_cascade_001")
+    turn = create_turn(conv.id, 1, "patient", "My test turn")
+    create_span_annotation(turn.id, "test", 3, 7, "explicit_feeling", span_id="span_casc")
+
+    with db_conn.get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM conversations WHERE id = ?", (conv.id,))
+
+    # Spans and turns must be gone
+    turns = get_turns_by_conversation(conv.id)
+    assert len(turns) == 0
+    spans = get_span_annotations(turn.id)
+    assert len(spans) == 0
+
+
+def test_get_full_conversation_with_missing_and_empty_conversation():
+    """Verify get_full_conversation_with_annotations returns None for missing and empty turns list for empty."""
+    # Nonexistent conversation
+    assert get_full_conversation_with_annotations(999999) is None
+
+    # Empty conversation (no turns)
+    conv = create_conversation(external_id="conv_empty_001")
+    full_conv = get_full_conversation_with_annotations(conv.id)
+    assert full_conv is not None
+    assert full_conv.turns == []
+

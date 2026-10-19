@@ -166,7 +166,7 @@ def render_manual_panel(turn: dict, turn_id: int, speaker: str, text: str):
 
         color = get_label_color(selected_label)
         st.markdown(
-            f'<span style="background-color: {color}; color: #1a1a2e; padding: 4px 12px; border-radius: 20px; font-weight: 600;">{format_label_name(selected_label)}</span>',
+            f'<span style="background-color: {color}; color: #1a1a2e; padding: 4px 12px; border-radius: 20px; font-weight: 600;">{html.escape(format_label_name(selected_label))}</span>',
             unsafe_allow_html=True,
         )
 

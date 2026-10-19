@@ -119,6 +119,7 @@ class SpanAnnotation:
     label: str = ""
     source: str = "manual"  # manual, ai_accepted, ai_modified, imported
     confidence: Optional[float] = None
+    reasoning: str = ""
     created_at: Optional[datetime] = None
 
     @classmethod
@@ -126,6 +127,7 @@ class SpanAnnotation:
         """Create SpanAnnotation from database row."""
         if row is None:
             return None
+        row_keys = row.keys() if hasattr(row, "keys") else []
         return cls(
             id=row["id"],
             turn_id=row["turn_id"],
@@ -137,6 +139,7 @@ class SpanAnnotation:
             label=row["label"],
             source=row["source"],
             confidence=row["confidence"],
+            reasoning=row["reasoning"] if "reasoning" in row_keys and row["reasoning"] else "",
             created_at=row["created_at"],
         )
 
@@ -151,9 +154,28 @@ class SpanAnnotation:
             "source": self.source,
             "expert_id": self.expert_id,
         }
+        if getattr(self, "reasoning", ""):
+            data["reasoning"] = self.reasoning
         if self.confidence is not None:
             data["confidence"] = self.confidence
         return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SpanAnnotation":
+        """Create SpanAnnotation from dictionary."""
+        start = data.get("start", data.get("start_pos", 0))
+        end = data.get("end", data.get("end_pos", len(data.get("text", ""))))
+        return cls(
+            span_id=data.get("span_id", ""),
+            text=data.get("text", ""),
+            start_pos=int(start) if start is not None else 0,
+            end_pos=int(end) if end is not None else 0,
+            label=data.get("label", ""),
+            source=data.get("source", "manual"),
+            confidence=float(data["confidence"]) if data.get("confidence") is not None else None,
+            reasoning=data.get("reasoning", "") or "",
+            expert_id=data.get("expert_id"),
+        )
 
 
 @dataclass

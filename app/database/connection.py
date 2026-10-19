@@ -161,6 +161,7 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_relations_to ON relations(to_span_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_suggestions_turn ON ai_suggestions(turn_id)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_suggestions_status ON ai_suggestions(status)")
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_spikes_turn_expert ON spikes_annotations(turn_id, IFNULL(expert_id, -1))")
 
 
 def close_db(conn):

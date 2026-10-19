@@ -83,23 +83,121 @@ class AnnotationRunner:
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
 
+    @staticmethod
+    def _solve_max_weight_bipartite_matching(weights: List[List[float]]) -> List[Tuple[int, int]]:
+        """Find maximum weight 1-to-1 bipartite matching using Hungarian algorithm.
+        
+        Guarantees globally optimal assignment, maximizing cardinal matches (TP) first
+        and sum of IoU second, resolving all greedy assignment anomalies.
+        """
+        if not weights or not weights[0]:
+            return []
+
+        n = len(weights)
+        m = len(weights[0])
+
+        # Attempt scipy first if available
+        try:
+            from scipy.optimize import linear_sum_assignment
+            import numpy as np
+
+            cost_matrix = -np.array(weights, dtype=float)
+            row_ind, col_ind = linear_sum_assignment(cost_matrix)
+            matches = []
+            for r, c in zip(row_ind, col_ind):
+                if weights[r][c] > 0:
+                    matches.append((int(r), int(c)))
+            return sorted(matches)
+        except Exception:
+            pass
+
+        # Pure-Python Kuhn-Munkres implementation (zero external dependency fallback)
+        dim = max(n, m)
+        cost = [[0.0] * dim for _ in range(dim)]
+        for i in range(n):
+            for j in range(m):
+                cost[i][j] = float(weights[i][j])
+
+        u = [0.0] * (dim + 1)
+        v = [0.0] * (dim + 1)
+        p = [0] * (dim + 1)
+        way = [0] * (dim + 1)
+        neg_cost = [[-cost[i][j] for j in range(dim)] for i in range(dim)]
+
+        for i in range(1, dim + 1):
+            p[0] = i
+            j0 = 0
+            minv = [float('inf')] * (dim + 1)
+            used = [False] * (dim + 1)
+            while True:
+                used[j0] = True
+                i0 = p[j0]
+                delta = float('inf')
+                j1 = 0
+                for j in range(1, dim + 1):
+                    if not used[j]:
+                        cur = neg_cost[i0 - 1][j - 1] - u[i0] - v[j]
+                        if cur < minv[j]:
+                            minv[j] = cur
+                            way[j] = j0
+                        if minv[j] < delta:
+                            delta = minv[j]
+                            j1 = j
+                for j in range(dim + 1):
+                    if used[j]:
+                        u[p[j]] += delta
+                        v[j] -= delta
+                    else:
+                        minv[j] -= delta
+                j0 = j1
+                if p[j0] == 0:
+                    break
+            while True:
+                j1 = way[j0]
+                p[j0] = p[j1]
+                j0 = j1
+                if j0 == 0:
+                    break
+
+        matches = []
+        for j in range(1, m + 1):
+            i = p[j]
+            if i != 0 and i - 1 < n and weights[i - 1][j - 1] > 0:
+                matches.append((i - 1, j - 1))
+        return sorted(matches)
+
     def compare_with_expert(
         self,
         agent_result: AnnotationResult,
-        expert_file: str,
+        expert_file: Any,
         min_iou_threshold: float = 0.0,
+        exact_match: bool = False,
     ) -> Dict[str, Any]:
-        """Compare agent annotations with expert ground-truth using 1-to-1 Bipartite Span Matching.
+        """Compare agent annotations with expert ground-truth using 1-to-1 Maximum Bipartite Matching.
         
-        Solves the precision compression and Cartesian product bugs:
-        - Evaluates at the individual span level (not set of labels).
-        - Matches each agent span to at most one expert span with maximal IoU.
-        - Calculates True Positives (TP), False Positives (FP), and False Negatives (FN).
+        Rigorous scientific evaluation protocol:
+        - Matches individual spans via Maximum Weight Bipartite Matching (Hungarian algorithm).
+        - Prevents one prediction from matching multiple expert annotations and vice-versa.
+        - Supports exact character offset matching or IoU threshold matching.
+        - Handles zero denominators safely without NaN or infinite values.
+        - Resolves ambiguous multi-span assignments globally without greedy order bias.
         """
-        with open(expert_file, 'r', encoding='utf-8') as f:
-            expert_data = json.load(f)
+        if isinstance(expert_file, (str, Path)):
+            with open(expert_file, 'r', encoding='utf-8') as f:
+                expert_data = json.load(f)
+        elif isinstance(expert_file, dict):
+            expert_data = expert_file
+        elif hasattr(expert_file, "to_dict"):
+            expert_data = expert_file.to_dict()
+        else:
+            raise TypeError("expert_file must be a filepath string, Path, dict, or AnnotationResult")
 
-        expert_turns = {t["turn_id"]: t for t in expert_data.get("turns", [])}
+        expert_turns = {
+            t["turn_id"]: t for t in expert_data.get("turns", []) if isinstance(t, dict) and "turn_id" in t
+        }
+        agent_turns_map = {t.turn_id: t for t in agent_result.turns}
+
+        all_turn_ids = sorted(set(agent_turns_map.keys()) | set(expert_turns.keys()))
 
         total_tp = 0
         total_fp = 0
@@ -107,49 +205,86 @@ class AnnotationRunner:
         matched_ious: List[float] = []
         per_turn_details: List[Dict[str, Any]] = []
 
-        for agent_turn in agent_result.turns:
-            turn_id = agent_turn.turn_id
+        CARDINAL_WEIGHT = 1000.0  # Guarantees maximizing number of matches before maximizing IoU
+
+        for turn_id in all_turn_ids:
+            agent_turn = agent_turns_map.get(turn_id)
             expert_turn = expert_turns.get(turn_id, {})
-            expert_spans = expert_turn.get("annotations", {}).get("spans", [])
+            agent_spans = agent_turn.spans if agent_turn else []
+            expert_spans = expert_turn.get("annotations", {}).get("spans", []) if isinstance(expert_turn, dict) else []
 
-            # Generate candidate pairs where label matches exactly
-            candidates: List[Tuple[float, int, int]] = []
-            for i, a_span in enumerate(agent_turn.spans):
+            n_a = len(agent_spans)
+            n_e = len(expert_spans)
+
+            if n_a == 0 or n_e == 0:
+                tp = 0
+                fp = n_a
+                fn = n_e
+                per_turn_details.append({
+                    "turn_id": turn_id,
+                    "tp": tp,
+                    "fp": fp,
+                    "fn": fn,
+                    "matched_pairs": [],
+                    "agent_only": [s.to_dict() if hasattr(s, "to_dict") else s for s in agent_spans],
+                    "expert_only": list(expert_spans),
+                })
+                total_tp += tp
+                total_fp += fp
+                total_fn += fn
+                continue
+
+            # Build weight matrix for Maximum Bipartite Matching
+            weight_matrix = [[0.0] * n_e for _ in range(n_a)]
+            iou_matrix = [[0.0] * n_e for _ in range(n_a)]
+
+            for i, a_span in enumerate(agent_spans):
                 for j, e_span in enumerate(expert_spans):
-                    if a_span.label == e_span.get("label"):
-                        iou = self._calculate_span_iou(
-                            (a_span.start, a_span.end),
-                            (e_span.get("start", 0), e_span.get("end", 0))
-                        )
-                        if iou > min_iou_threshold:
-                            candidates.append((iou, i, j))
+                    e_label = e_span.get("label", "")
+                    if a_span.label == e_label:
+                        a_start, a_end = a_span.start, a_span.end
+                        e_start = e_span.get("start", e_span.get("start_pos", 0))
+                        e_end = e_span.get("end", e_span.get("end_pos", 0))
 
-            # Optimal greedy 1-to-1 bipartite matching
-            candidates.sort(key=lambda x: x[0], reverse=True)
-            matched_a_indices = set()
-            matched_e_indices = set()
-            turn_ious = []
+                        iou = self._calculate_span_iou((a_start, a_end), (e_start, e_end))
+                        iou_matrix[i][j] = iou
+
+                        if exact_match:
+                            is_valid = (a_start == e_start and a_end == e_end)
+                        else:
+                            if min_iou_threshold == 0.0:
+                                is_valid = (iou > 0.0)
+                            else:
+                                is_valid = (iou >= min_iou_threshold)
+
+                        if is_valid:
+                            weight_matrix[i][j] = CARDINAL_WEIGHT + iou
+
+            # Solve globally optimal assignment
+            matched_indices = self._solve_max_weight_bipartite_matching(weight_matrix)
+
+            matched_a_set = set()
+            matched_e_set = set()
             matched_pairs_info = []
 
-            for iou, a_idx, e_idx in candidates:
-                if a_idx not in matched_a_indices and e_idx not in matched_e_indices:
-                    matched_a_indices.add(a_idx)
-                    matched_e_indices.add(e_idx)
-                    turn_ious.append(iou)
-                    matched_pairs_info.append({
-                        "agent_span": agent_turn.spans[a_idx].to_dict(),
-                        "expert_span": expert_spans[e_idx],
-                        "iou": iou,
-                    })
+            for a_idx, e_idx in matched_indices:
+                matched_a_set.add(a_idx)
+                matched_e_set.add(e_idx)
+                iou_val = iou_matrix[a_idx][e_idx]
+                matched_ious.append(iou_val)
+                matched_pairs_info.append({
+                    "agent_span": agent_spans[a_idx].to_dict() if hasattr(agent_spans[a_idx], "to_dict") else agent_spans[a_idx],
+                    "expert_span": expert_spans[e_idx],
+                    "iou": iou_val,
+                })
 
-            tp = len(matched_a_indices)
-            fp = len(agent_turn.spans) - tp
-            fn = len(expert_spans) - len(matched_e_indices)
+            tp = len(matched_indices)
+            fp = n_a - tp
+            fn = n_e - tp
 
             total_tp += tp
             total_fp += fp
             total_fn += fn
-            matched_ious.extend(turn_ious)
 
             per_turn_details.append({
                 "turn_id": turn_id,
@@ -157,13 +292,13 @@ class AnnotationRunner:
                 "fp": fp,
                 "fn": fn,
                 "matched_pairs": matched_pairs_info,
-                "agent_only": [agent_turn.spans[i].to_dict() for i in range(len(agent_turn.spans)) if i not in matched_a_indices],
-                "expert_only": [expert_spans[j] for j in range(len(expert_spans)) if j not in matched_e_indices],
+                "agent_only": [agent_spans[i].to_dict() if hasattr(agent_spans[i], "to_dict") else agent_spans[i] for i in range(n_a) if i not in matched_a_set],
+                "expert_only": [expert_spans[j] for j in range(n_e) if j not in matched_e_set],
             })
 
-        # Summary Metrics
-        precision = total_tp / max(total_tp + total_fp, 1)
-        recall = total_tp / max(total_tp + total_fn, 1)
+        # Summary Metrics with safe zero-denominator handling
+        precision = (total_tp / (total_tp + total_fp)) if (total_tp + total_fp) > 0 else 0.0
+        recall = (total_tp / (total_tp + total_fn)) if (total_tp + total_fn) > 0 else 0.0
         if precision + recall > 0:
             f1 = 2 * precision * recall / (precision + recall)
         else:
@@ -172,27 +307,30 @@ class AnnotationRunner:
         avg_span_iou = (sum(matched_ious) / len(matched_ious)) if matched_ious else 0.0
 
         return {
-            "total_turns": len(agent_result.turns),
+            "total_turns": len(all_turn_ids),
             "true_positives": total_tp,
             "false_positives": total_fp,
             "false_negatives": total_fn,
             "label_matches": total_tp,  # Backward compatible alias
-            "precision": precision,
-            "recall": recall,
-            "f1": f1,
-            "avg_span_iou": avg_span_iou,
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1": round(f1, 4),
+            "avg_span_iou": round(avg_span_iou, 4),
             "span_overlap_scores": matched_ious,
             "per_turn_details": per_turn_details,
         }
 
+    @staticmethod
     def _calculate_span_iou(
-        self,
-        span1: tuple,
-        span2: tuple
+        span1: Tuple[int, int],
+        span2: Tuple[int, int]
     ) -> float:
         """Calculate Intersection over Union for two character ranges."""
         start1, end1 = span1
         start2, end2 = span2
+
+        if start1 >= end1 or start2 >= end2:
+            return 0.0
 
         intersection_start = max(start1, start2)
         intersection_end = min(end1, end2)

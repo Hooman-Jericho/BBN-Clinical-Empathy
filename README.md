@@ -135,12 +135,33 @@ Run the complete test suite with Pytest:
 python -m pytest tests -v
 ```
 
-All 15 automated unit and integration tests validate:
-- Zero zombie annotations on deletion.
-- Multi-occurrence disambiguation for repeated words.
-- HTML injection and XSS mitigation.
-- Robust JSON extraction from LLMs.
-- Relation cascading and deletion.
+All 51 automated unit and integration tests validate:
+- **Maximum Weight Bipartite Matching**: 1-to-1 Hungarian matching algorithm resolving ambiguous assignments, identical labels, and Cartesian IoU pollution.
+- **Data Model Serialization**: Full round-trip integrity (`to_dict` / `from_dict`), explicit reasoning field support, and backward compatibility.
+- **Transactional Database Layer**: WAL mode, foreign-key cascades, atomic rollback on exceptions, duplicate rejection, and NULL-expert SPIKES upsert integrity.
+- **HTML & XSS Security**: Robust sanitization across turn text, dialog boxes, chips, relations, and interval-partitioned highlights.
+- **Deterministic Mocked Agents**: Multi-pass JSON extraction, Markdown code fence parsing, bounded retries, and provider error reporting.
+
+---
+
+## 📐 Evaluation Methodology: 1-to-1 Maximum Bipartite Matching
+
+The expert evaluation pipeline (`AnnotationRunner.compare_with_expert`) utilizes **Maximum Weight Bipartite Matching (Hungarian algorithm)**:
+- **One-to-One Alignment**: Each predicted span matches at most one ground-truth span with matching label.
+- **Cardinality Maximization**: Matches cardinal count ($TP$) first using high-order weight scaling before maximizing total IoU, preventing greedy assignment suboptimalities.
+- **Overlap & Exact Matching**: Supports both continuous IoU thresholds (`min_iou_threshold`) and exact boundary match (`exact_match=True`).
+- **Safe Zero Denominators**: Fully handles empty inputs and edge cases without division-by-zero, NaN, or infinite metric values.
+
+---
+
+## ⚕️ Clinical & Scientific Validity Disclaimer
+
+> [!IMPORTANT]
+> **Research Assistance Disclaimer**:
+> This software is an experimental research and annotation tool designed to assist human experts in studying clinical dialogue. Model-generated annotations, suggestions, and agreement metrics are **research aids and do NOT constitute clinical validation or medical diagnosis**.
+> 
+> - **Synthetic Demo Data**: Sample conversations included in `data/samples/` are synthetic dialogues constructed for demonstration and user-interface testing. They do not contain protected health information (PHI).
+> - **Inter-Annotator Agreement**: Scientific evaluation of clinical empathy requires qualified expert adjudication and representative real-world cohorts. Unit test passes demonstrate software correctness, not clinical efficacy.
 
 ---
 

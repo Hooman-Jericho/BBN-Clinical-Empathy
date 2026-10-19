@@ -30,18 +30,33 @@ class SpanAnnotation:
     reasoning: str = ""
     confidence: Optional[float] = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         data = {
             "span_id": self.span_id,
             "text": self.text,
             "start": self.start,
             "end": self.end,
             "label": self.label,
-            "reasoning": self.reasoning,
+            "reasoning": getattr(self, "reasoning", "") or "",
         }
         if self.confidence is not None:
             data["confidence"] = self.confidence
         return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SpanAnnotation":
+        """Reconstruct SpanAnnotation from dictionary with resilient field mapping."""
+        start = data.get("start", data.get("start_pos", 0))
+        end = data.get("end", data.get("end_pos", len(data.get("text", ""))))
+        return cls(
+            span_id=str(data.get("span_id", "")),
+            text=str(data.get("text", "")),
+            start=int(start) if start is not None else 0,
+            end=int(end) if end is not None else 0,
+            label=str(data.get("label", "")),
+            reasoning=str(data.get("reasoning", "") or ""),
+            confidence=float(data["confidence"]) if data.get("confidence") is not None else None,
+        )
 
 
 @dataclass
@@ -50,13 +65,27 @@ class RelationAnnotation:
     from_span_id: str
     to_span_id: str
     relation_type: Literal["response_to", "elicitation_of"]
+    reasoning: str = ""
 
-    def to_dict(self) -> Dict:
-        return {
+    def to_dict(self) -> Dict[str, Any]:
+        data = {
             "from": self.from_span_id,
             "to": self.to_span_id,
             "type": self.relation_type,
         }
+        if getattr(self, "reasoning", ""):
+            data["reasoning"] = self.reasoning
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "RelationAnnotation":
+        """Reconstruct RelationAnnotation from dictionary."""
+        return cls(
+            from_span_id=str(data.get("from") or data.get("from_span_id", "")),
+            to_span_id=str(data.get("to") or data.get("to_span_id", "")),
+            relation_type=data.get("type") or data.get("relation_type", "response_to"),
+            reasoning=str(data.get("reasoning", "") or ""),
+        )
 
 
 @dataclass
@@ -70,10 +99,10 @@ class TurnAnnotation:
     relations: List[RelationAnnotation] = field(default_factory=list)
     reasoning_steps: List[Any] = field(default_factory=list)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "turn_id": self.turn_id,
-            "speaker": self.speaker.value,
+            "speaker": self.speaker.value if isinstance(self.speaker, Speaker) else str(self.speaker),
             "text": self.text,
             "annotations": {
                 "spikes_stage": self.spikes_stage,
@@ -86,6 +115,30 @@ class TurnAnnotation:
             ],
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TurnAnnotation":
+        """Reconstruct TurnAnnotation from dictionary."""
+        annotations = data.get("annotations", {})
+        spans_raw = annotations.get("spans", []) if isinstance(annotations, dict) else []
+        relations_raw = annotations.get("relations", []) if isinstance(annotations, dict) else []
+        spikes_stage = annotations.get("spikes_stage") if isinstance(annotations, dict) else data.get("spikes_stage")
+
+        speaker_val = data.get("speaker", Speaker.PATIENT.value)
+        if isinstance(speaker_val, str) and speaker_val.lower() == "clinician":
+            speaker = Speaker.CLINICIAN
+        else:
+            speaker = Speaker.PATIENT
+
+        return cls(
+            turn_id=int(data.get("turn_id", 0)),
+            speaker=speaker,
+            text=str(data.get("text", "")),
+            spikes_stage=spikes_stage,
+            spans=[SpanAnnotation.from_dict(s) for s in spans_raw if isinstance(s, dict)],
+            relations=[RelationAnnotation.from_dict(r) for r in relations_raw if isinstance(r, dict)],
+            reasoning_steps=data.get("reasoning_steps", []),
+        )
+
 
 @dataclass
 class AnnotationResult:
@@ -95,7 +148,7 @@ class AnnotationResult:
     agent_type: str  # 'react' or 'multi_agent'
     metadata: Dict = field(default_factory=dict)
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "conversation_id": self.conversation_id,
             "agent_type": self.agent_type,
@@ -104,7 +157,22 @@ class AnnotationResult:
         }
 
     def to_json(self, indent: int = 2) -> str:
-        return json.dumps(self.to_dict(), indent=indent)
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AnnotationResult":
+        """Reconstruct AnnotationResult from dictionary."""
+        return cls(
+            conversation_id=str(data.get("conversation_id", data.get("id", ""))),
+            agent_type=str(data.get("agent_type", "react")),
+            metadata=data.get("metadata", {}),
+            turns=[TurnAnnotation.from_dict(t) for t in data.get("turns", []) if isinstance(t, dict)],
+        )
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "AnnotationResult":
+        """Reconstruct AnnotationResult from JSON string."""
+        return cls.from_dict(json.loads(json_str))
 
 
 @dataclass

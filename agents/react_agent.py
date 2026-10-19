@@ -79,36 +79,84 @@ def resolve_span_coordinates(text: str, span_text: str, suggested_start: int, su
 
 
 def extract_json_from_text(response: str) -> Dict[str, Any]:
-    """Robust multi-pass JSON extractor from LLM responses."""
-    if not response or not response.strip():
+    """Robust multi-pass JSON extractor from LLM responses.
+    
+    Handles:
+    - Direct JSON objects and arrays
+    - Markdown code fences (```json ... ``` or ``` ... ```)
+    - Embedded JSON inside explanatory prose
+    - Trailing commas before closing brackets
+    - Array responses normalized into {"annotations": [...]}
+    """
+    if not response or not str(response).strip():
         return {}
 
+    text = str(response).strip()
+
+    # Pass 1: Direct JSON load
     try:
-        return json.loads(response.strip())
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+        if isinstance(data, list):
+            return {"annotations": data}
     except json.JSONDecodeError:
         pass
 
-    codeblock_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', response, re.IGNORECASE)
+    # Pass 2: Markdown code block extraction
+    codeblock_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text, re.IGNORECASE)
     if codeblock_match:
+        cb_content = codeblock_match.group(1).strip()
         try:
-            return json.loads(codeblock_match.group(1).strip())
+            data = json.loads(cb_content)
+            if isinstance(data, dict):
+                return data
+            if isinstance(data, list):
+                return {"annotations": data}
         except json.JSONDecodeError:
-            pass
+            cleaned = re.sub(r',\s*([\]}])', r'\1', cb_content)
+            try:
+                data = json.loads(cleaned)
+                if isinstance(data, dict):
+                    return data
+                if isinstance(data, list):
+                    return {"annotations": data}
+            except json.JSONDecodeError:
+                pass
 
-    start_idx = response.find('{')
-    end_idx = response.rfind('}')
-    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-        json_candidate = response[start_idx:end_idx + 1]
+    # Pass 3: Search for outer curly braces {...}
+    start_obj = text.find('{')
+    end_obj = text.rfind('}')
+    if start_obj != -1 and end_obj != -1 and end_obj > start_obj:
+        candidate = text[start_obj:end_obj + 1]
         try:
-            return json.loads(json_candidate)
+            return json.loads(candidate)
         except json.JSONDecodeError:
-            cleaned = re.sub(r',\s*([\]}])', r'\1', json_candidate)
+            cleaned = re.sub(r',\s*([\]}])', r'\1', candidate)
             try:
                 return json.loads(cleaned)
             except json.JSONDecodeError:
                 pass
 
-    logger.warning("Failed to extract JSON from LLM response: %s", response[:200])
+    # Pass 4: Search for outer square brackets [...]
+    start_arr = text.find('[')
+    end_arr = text.rfind(']')
+    if start_arr != -1 and end_arr != -1 and end_arr > start_arr:
+        candidate = text[start_arr:end_arr + 1]
+        try:
+            arr = json.loads(candidate)
+            if isinstance(arr, list):
+                return {"annotations": arr}
+        except json.JSONDecodeError:
+            cleaned = re.sub(r',\s*([\]}])', r'\1', candidate)
+            try:
+                arr = json.loads(cleaned)
+                if isinstance(arr, list):
+                    return {"annotations": arr}
+            except json.JSONDecodeError:
+                pass
+
+    logger.warning("Failed to extract JSON from LLM response: %s", text[:200])
     return {}
 
 
@@ -200,7 +248,7 @@ class ClinicalToolEnvironment:
 
 
 class LLMClient:
-    """Unified wrapper for LLM API calls."""
+    """Unified wrapper for LLM API calls with bounded retries and informative error reporting."""
 
     def __init__(self, config: AgentConfig):
         self.config = config
@@ -216,34 +264,55 @@ class LLMClient:
                 self._client = Anthropic(api_key=self.config.api_key)
         return self._client
 
-    def chat(self, system_prompt: str, user_prompt: str) -> str:
-        """Send chat request."""
+    def chat(self, system_prompt: str, user_prompt: str, max_retries: int = 2) -> str:
+        """Send chat request with bounded retries and informative error handling."""
         client = self._get_client()
+        last_error = None
 
-        if self.config.provider == "openai":
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
-            )
-            return response.choices[0].message.content or ""
+        for attempt in range(max_retries + 1):
+            try:
+                if self.config.provider == "openai":
+                    response = client.chat.completions.create(
+                        model=self.config.model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        temperature=self.config.temperature,
+                        max_tokens=self.config.max_tokens,
+                    )
+                    return response.choices[0].message.content or ""
 
-        elif self.config.provider == "anthropic":
-            response = client.messages.create(
-                model=self.config.model,
-                max_tokens=self.config.max_tokens,
-                system=system_prompt,
-                messages=[
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            return response.content[0].text if response.content else ""
+                elif self.config.provider == "anthropic":
+                    response = client.messages.create(
+                        model=self.config.model,
+                        max_tokens=self.config.max_tokens,
+                        system=system_prompt,
+                        messages=[
+                            {"role": "user", "content": user_prompt},
+                        ],
+                    )
+                    return response.content[0].text if response.content else ""
 
-        raise ValueError(f"Unknown provider: {self.config.provider}")
+                raise ValueError(f"Unknown provider: {self.config.provider}")
+
+            except Exception as e:
+                last_error = e
+                err_msg = str(e).lower()
+                if "authentication" in err_msg or "api key" in err_msg or "unauthorized" in err_msg:
+                    raise RuntimeError(
+                        f"LLM Provider Authentication Failure ({self.config.provider}): {e}. "
+                        f"Verify your {self.config.provider.upper()}_API_KEY."
+                    ) from e
+
+                if attempt < max_retries:
+                    import time
+                    time.sleep(0.5 * (2 ** attempt))
+                    continue
+
+        raise RuntimeError(
+            f"LLM Provider Error ({self.config.provider}, model '{self.config.model}') after {max_retries + 1} attempts: {last_error}"
+        ) from last_error
 
 
 class ReActAnnotationAgent:

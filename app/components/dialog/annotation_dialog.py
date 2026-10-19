@@ -1,5 +1,4 @@
-"""Main annotation dialog component."""
-
+import html
 import streamlit as st
 from state import close_dialog
 from components.dialog.manual_panel import render_manual_panel
@@ -18,9 +17,9 @@ def annotation_dialog(turn, schema, conversation):
     # Header with speaker info
     _render_header(speaker, turn_id)
 
-    # Display the turn text
+    # Display the turn text (safely escaped)
     st.markdown(
-        f'<div class="selectable-text">{text}</div>',
+        f'<div class="selectable-text">{html.escape(text)}</div>',
         unsafe_allow_html=True,
     )
     st.caption("Select text above and paste it below to annotate")

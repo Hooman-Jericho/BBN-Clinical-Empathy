@@ -89,18 +89,20 @@ def render_turn_card(turn: dict, schema: dict, show_annotations: bool = True) ->
 
     highlighted_text = build_highlighted_text(text, spans if show_annotations else [])
 
-    turn_class = "patient-turn" if speaker == "patient" else "clinician-turn"
-    speaker_icon = "🧑‍🦱" if speaker == "patient" else "👨‍⚕️"
-    speaker_label = "Patient" if speaker == "patient" else "Clinician"
+    is_patient = str(speaker).lower() == "patient"
+    turn_class = "patient-turn" if is_patient else "clinician-turn"
+    speaker_icon = "🧑‍🦱" if is_patient else "👨‍⚕️"
+    speaker_label = "Patient" if is_patient else "Clinician"
+    turn_id_display = html.escape(str(turn_id))
 
     html_card = f"""
     <div class="{turn_class}">
-        <div class="speaker-label">{speaker_icon} {speaker_label} · Turn {turn_id}</div>
+        <div class="speaker-label">{speaker_icon} {speaker_label} · Turn {turn_id_display}</div>
     """
 
-    if spikes_stage and speaker == "clinician":
-        spikes_color = get_label_color(spikes_stage)
-        html_card += f'<span class="annotation-badge" style="background-color: {spikes_color};">SPIKES: {html.escape(spikes_stage.upper())}</span><br><br>'
+    if spikes_stage and not is_patient:
+        spikes_color = html.escape(get_label_color(spikes_stage))
+        html_card += f'<span class="annotation-badge" style="background-color: {spikes_color};">SPIKES: {html.escape(str(spikes_stage).upper())}</span><br><br>'
 
     html_card += f'<div class="turn-text">{highlighted_text}</div>'
 
@@ -109,7 +111,7 @@ def render_turn_card(turn: dict, schema: dict, show_annotations: bool = True) ->
         html_card += '<div class="annotation-section">'
         for span in spans:
             label = span.get("label", "")
-            color = get_label_color(label)
+            color = html.escape(get_label_color(label))
             span_text = span.get("text", "")
             badge_title = f"{format_label_name(label)}: '{span_text}'"
             html_card += f'<span class="annotation-badge" style="background-color: {color}; color: #1a1a2e;" title="{html.escape(badge_title)}">{html.escape(format_label_name(label))}</span> '

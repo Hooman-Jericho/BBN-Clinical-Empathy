@@ -1,5 +1,4 @@
-"""Relations panel component with full CRUD and deletion support."""
-
+import html
 import streamlit as st
 from utils import format_label_name
 from services import add_relation, remove_relation
@@ -97,13 +96,16 @@ def render_relations_panel(turn_id: int, conversation: dict, turn_annotations: d
 
             col_desc, col_del = st.columns([5, 1])
             with col_desc:
+                escaped_from = html.escape(from_trunc)
+                escaped_to = html.escape(to_trunc)
+                escaped_type = html.escape(rel.get("type", "").replace("_", " "))
                 st.markdown(
                     f'<div class="relation-item">'
-                    f'<span style="color:#16a34a; font-weight:600;">Clinician: "{from_trunc}"</span>'
+                    f'<span style="color:#16a34a; font-weight:600;">Clinician: "{escaped_from}"</span>'
                     f'<span class="rel-arrow"> ➔ </span>'
-                    f'<span class="rel-type">[{rel["type"].replace("_", " ")}]</span>'
+                    f'<span class="rel-type">[{escaped_type}]</span>'
                     f'<span class="rel-arrow"> ➔ </span>'
-                    f'<span style="color:#7c3aed; font-weight:600;">Patient: "{to_trunc}"</span>'
+                    f'<span style="color:#7c3aed; font-weight:600;">Patient: "{escaped_to}"</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )

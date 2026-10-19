@@ -1,5 +1,6 @@
 """Current annotations panel component."""
 
+import html
 import streamlit as st
 from utils import get_label_color, format_label_name
 from services import remove_span_annotation
@@ -27,9 +28,10 @@ def render_annotations_panel(turn_id):
             col_text, col_label, col_del = st.columns([3, 2, 1])
             with col_text:
                 color = get_label_color(span["label"])
-                display_text = span["text"][:40] + ("..." if len(span["text"]) > 40 else "")
+                raw_text = span.get("text", "")
+                display_text = raw_text[:40] + ("..." if len(raw_text) > 40 else "")
                 st.markdown(
-                    f'<span style="background-color: {color}; color: #1e293b; padding: 2px 8px; border-radius: 4px;">"{display_text}"</span>',
+                    f'<span style="background-color: {color}; color: #1e293b; padding: 2px 8px; border-radius: 4px;">"{html.escape(display_text)}"</span>',
                     unsafe_allow_html=True,
                 )
             with col_label:

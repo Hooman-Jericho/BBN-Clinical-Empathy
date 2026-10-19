@@ -317,17 +317,24 @@ def set_spikes_annotation(
                 )
             else:
                 cursor.execute(
-                    "DELETE FROM spikes_annotations WHERE turn_id = ?",
+                    "DELETE FROM spikes_annotations WHERE turn_id = ? AND expert_id IS NULL",
                     (turn_id,)
                 )
             return None
         else:
-            cursor.execute(
-                """INSERT INTO spikes_annotations (turn_id, expert_id, stage)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(turn_id, expert_id) DO UPDATE SET stage = excluded.stage""",
-                (turn_id, expert_id, stage)
-            )
+            if expert_id:
+                cursor.execute(
+                    """INSERT INTO spikes_annotations (turn_id, expert_id, stage)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(turn_id, expert_id) DO UPDATE SET stage = excluded.stage""",
+                    (turn_id, expert_id, stage)
+                )
+            else:
+                cursor.execute("DELETE FROM spikes_annotations WHERE turn_id = ? AND expert_id IS NULL", (turn_id,))
+                cursor.execute(
+                    "INSERT INTO spikes_annotations (turn_id, expert_id, stage) VALUES (?, NULL, ?)",
+                    (turn_id, stage)
+                )
             return SpikesAnnotation(turn_id=turn_id, expert_id=expert_id, stage=stage)
 
 
@@ -498,12 +505,12 @@ def get_full_conversation_with_annotations(
         # 5. Batch fetch SPIKES
         if expert_id:
             cursor.execute(
-                f"SELECT * FROM spikes_annotations WHERE turn_id IN ({placeholders}) AND expert_id = ?",
+                f"SELECT * FROM spikes_annotations WHERE turn_id IN ({placeholders}) AND expert_id = ? ORDER BY id ASC",
                 turn_ids + [expert_id]
             )
         else:
             cursor.execute(
-                f"SELECT * FROM spikes_annotations WHERE turn_id IN ({placeholders})",
+                f"SELECT * FROM spikes_annotations WHERE turn_id IN ({placeholders}) ORDER BY id ASC",
                 turn_ids
             )
         for row in cursor.fetchall():
@@ -598,17 +605,30 @@ def sync_session_annotations(
             # --- 3. SPIKES STAGE SYNC ---
             stage = session_data.get("spikes_stage")
             if stage and stage.lower() not in ("none", ""):
-                cursor.execute(
-                    """INSERT INTO spikes_annotations (turn_id, expert_id, stage)
-                       VALUES (?, ?, ?)
-                       ON CONFLICT(turn_id, expert_id) DO UPDATE SET stage = excluded.stage""",
-                    (turn_id, expert_id, stage)
-                )
+                if expert_id:
+                    cursor.execute(
+                        """INSERT INTO spikes_annotations (turn_id, expert_id, stage)
+                           VALUES (?, ?, ?)
+                           ON CONFLICT(turn_id, expert_id) DO UPDATE SET stage = excluded.stage""",
+                        (turn_id, expert_id, stage)
+                    )
+                else:
+                    cursor.execute("DELETE FROM spikes_annotations WHERE turn_id = ? AND expert_id IS NULL", (turn_id,))
+                    cursor.execute(
+                        "INSERT INTO spikes_annotations (turn_id, expert_id, stage) VALUES (?, NULL, ?)",
+                        (turn_id, stage)
+                    )
             else:
-                cursor.execute(
-                    "DELETE FROM spikes_annotations WHERE turn_id = ?",
-                    (turn_id,)
-                )
+                if expert_id:
+                    cursor.execute(
+                        "DELETE FROM spikes_annotations WHERE turn_id = ? AND expert_id = ?",
+                        (turn_id, expert_id)
+                    )
+                else:
+                    cursor.execute(
+                        "DELETE FROM spikes_annotations WHERE turn_id = ? AND expert_id IS NULL",
+                        (turn_id,)
+                    )
 
         return True
 

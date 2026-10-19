@@ -83,33 +83,54 @@ class BaseLLMAgent:
                 self._client = Anthropic(api_key=self.config.api_key)
         return self._client
 
-    def _call_llm(self, user_prompt: str) -> str:
+    def _call_llm(self, user_prompt: str, max_retries: int = 2) -> str:
         client = self._get_client()
+        last_error = None
 
-        if self.config.provider == "openai":
-            response = client.chat.completions.create(
-                model=self.config.model,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                temperature=self.config.temperature,
-                max_tokens=self.config.max_tokens,
-            )
-            return response.choices[0].message.content or ""
+        for attempt in range(max_retries + 1):
+            try:
+                if self.config.provider == "openai":
+                    response = client.chat.completions.create(
+                        model=self.config.model,
+                        messages=[
+                            {"role": "system", "content": self.system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        temperature=self.config.temperature,
+                        max_tokens=self.config.max_tokens,
+                    )
+                    return response.choices[0].message.content or ""
 
-        elif self.config.provider == "anthropic":
-            response = client.messages.create(
-                model=self.config.model,
-                max_tokens=self.config.max_tokens,
-                system=self.system_prompt,
-                messages=[
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            return response.content[0].text if response.content else ""
+                elif self.config.provider == "anthropic":
+                    response = client.messages.create(
+                        model=self.config.model,
+                        max_tokens=self.config.max_tokens,
+                        system=self.system_prompt,
+                        messages=[
+                            {"role": "user", "content": user_prompt},
+                        ],
+                    )
+                    return response.content[0].text if response.content else ""
 
-        raise ValueError(f"Unknown provider: {self.config.provider}")
+                raise ValueError(f"Unknown provider: {self.config.provider}")
+
+            except Exception as e:
+                last_error = e
+                err_msg = str(e).lower()
+                if "authentication" in err_msg or "api key" in err_msg or "unauthorized" in err_msg:
+                    raise RuntimeError(
+                        f"LLM Provider Authentication Failure ({self.config.provider}): {e}. "
+                        f"Verify your {self.config.provider.upper()}_API_KEY."
+                    ) from e
+
+                if attempt < max_retries:
+                    import time
+                    time.sleep(0.5 * (2 ** attempt))
+                    continue
+
+        raise RuntimeError(
+            f"LLM Specialist Error ({self.role.value}, provider: {self.config.provider}, model '{self.config.model}') after {max_retries + 1} attempts: {last_error}"
+        ) from last_error
 
     def _parse_json(self, response: str) -> Dict[str, Any]:
         return extract_json_from_text(response)
