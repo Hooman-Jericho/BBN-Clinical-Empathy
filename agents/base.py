@@ -2,6 +2,7 @@
 Base classes and utilities for BBN Annotation Agents
 """
 
+from typing import Any
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Literal
 from enum import Enum
@@ -26,6 +27,7 @@ class SpanAnnotation:
     start: int
     end: int
     label: str
+    reasoning: str = ""
     confidence: Optional[float] = None
 
     def to_dict(self) -> Dict:
@@ -66,6 +68,7 @@ class TurnAnnotation:
     spikes_stage: Optional[str] = None
     spans: List[SpanAnnotation] = field(default_factory=list)
     relations: List[RelationAnnotation] = field(default_factory=list)
+    reasoning_steps: List[Any] = field(default_factory=list)
 
     def to_dict(self) -> Dict:
         return {
@@ -76,7 +79,11 @@ class TurnAnnotation:
                 "spikes_stage": self.spikes_stage,
                 "spans": [s.to_dict() for s in self.spans],
                 "relations": [r.to_dict() for r in self.relations],
-            }
+            },
+            "reasoning_steps": [
+                step.to_dict() if hasattr(step, "to_dict") else step
+                for step in self.reasoning_steps
+            ],
         }
 
 
