@@ -1,4 +1,4 @@
-# BBN Clinical Empathy Annotation Tool (Enterprise & Research Edition)
+# BBN Clinical Empathy Annotation Tool
 
 An advanced, AI-assisted viewer and annotation system for Breaking Bad News (BBN) clinical conversations, grounded in the **Appraisal Framework for Clinical Empathy** (Lahnala et al., LREC-COLING 2024 / Pounds, 2011) and the **SPIKES Protocol** (Baile et al., 2000).
 
@@ -19,20 +19,26 @@ An advanced, AI-assisted viewer and annotation system for Breaking Bad News (BBN
   - Review actions (`accepted`, `rejected`, `modified`) are tracked by annotator/expert.
 - **Cross-Turn Semantic Relations**: Link clinician elicitations/responses to patient Empathic Opportunities (EOs) with complete deletion and management support.
 - **Occurrence Disambiguation**: Accurately annotates repeated words or phrases without first-occurrence bias.
-- **Automated Test Suite**: 100% pass rate across database CRUD, annotation state, XSS safety, and agent parsing.
+- **Strict, observable agent output**: every model span is validated individually (label, speaker, text, offsets); rejections are counted in per-turn `diagnostics` instead of disappearing.
+- **Evaluation harness**: `python -m agents evaluate|experiment` with IoU-tiered span F1, kappa, SPIKES accuracy, relation F1 and bootstrap CIs.
 
 ---
 
 ## 📁 Project Structure
 
 ```
-BBN-Annotation/
+BBN-Clinical-Empathy/
 ├── agents/                      # AI Agent System
 │   ├── base.py                  # Core dataclasses, label definitions, AgentConfig
 │   ├── prompts.py               # Prompts for ReAct and Specialist Agents
 │   ├── react_agent.py           # ReAct Agent with coordinate disambiguation
 │   ├── multi_agent.py           # Multi-Agent coordinated system
-│   └── runner.py                # Unified CLI runner & expert comparison metrics
+│   ├── validation.py            # Per-span validation, ParseStats diagnostics
+│   ├── llm.py                   # Provider client (seed, json mode, usage accounting)
+│   ├── evaluation.py            # Metrics: IoU tiers, kappa, SPIKES, relations, bootstrap
+│   ├── data_validation.py       # Gold/sample data validator + offset repair
+│   ├── cli.py                   # python -m agents {validate,annotate,evaluate,experiment}
+│   └── runner.py                # Runner API & expert comparison
 ├── app/
 │   ├── components/              # UI Components
 │   │   ├── dialog/              # Annotation Dialog Panels
@@ -80,7 +86,7 @@ BBN-Annotation/
 
 ```bash
 # Clone or extract repository
-cd BBN-Annotation
+cd BBN-Clinical-Empathy
 
 # Install dependencies
 pip install -r requirements.txt
@@ -135,7 +141,7 @@ Run the complete test suite with Pytest:
 python -m pytest tests -v
 ```
 
-All 51 automated unit and integration tests validate:
+The automated suite (software-correctness tests, not clinical validation) covers:
 - **Maximum Weight Bipartite Matching**: 1-to-1 Hungarian matching algorithm resolving ambiguous assignments, identical labels, and Cartesian IoU pollution.
 - **Data Model Serialization**: Full round-trip integrity (`to_dict` / `from_dict`), explicit reasoning field support, and backward compatibility.
 - **Transactional Database Layer**: WAL mode, foreign-key cascades, atomic rollback on exceptions, duplicate rejection, and NULL-expert SPIKES upsert integrity.
@@ -149,8 +155,35 @@ All 51 automated unit and integration tests validate:
 The expert evaluation pipeline (`AnnotationRunner.compare_with_expert`) utilizes **Maximum Weight Bipartite Matching (Hungarian algorithm)**:
 - **One-to-One Alignment**: Each predicted span matches at most one ground-truth span with matching label.
 - **Cardinality Maximization**: Matches cardinal count ($TP$) first using high-order weight scaling before maximizing total IoU, preventing greedy assignment suboptimalities.
-- **Overlap & Exact Matching**: Supports both continuous IoU thresholds (`min_iou_threshold`) and exact boundary match (`exact_match=True`).
+- **Overlap & Exact Matching**: Supports both continuous IoU thresholds (`min_iou_threshold`, default 0.5) and exact boundary match (`exact_match=True`).
 - **Safe Zero Denominators**: Fully handles empty inputs and edge cases without division-by-zero, NaN, or infinite metric values.
+
+---
+
+## 🧭 Current Status & Known Limitations
+
+This project is a working **annotation UI plus an agent prototype**. It is *not yet* a validated
+annotator.
+
+- **No agent accuracy is claimed.** There is no expert-annotated gold set in the repository and
+  no published agent-vs-expert score. The only bundled data is one synthetic 13-turn dialogue
+  used for UI demos and tests. The evaluation harness exists so those numbers can be produced
+  once a gold set is available.
+- Metrics need a gold set of several conversations to be meaningful; with fewer than 5
+  conversations the bootstrap CI resamples turns, and the report says so.
+- LLM output is not deterministic. Use `--temperature 0 --seed N` (seed is OpenAI-only, best
+  effort) and `experiment --runs N` to report variance.
+- Critic and coordinator components are switchable (`--no-critic`, `--coordinator`) precisely so
+  their value can be measured; no ablation has been run yet.
+
+### Command line
+
+```bash
+python -m agents validate data/samples
+python -m agents annotate conv.json -o out.json --agent react --temperature 0 --seed 1
+python -m agents evaluate --pred out.json --gold data/samples -o report.json
+python -m agents experiment --gold gold/ --runs 5 --agent multi_agent -o exp.json
+```
 
 ---
 
@@ -168,5 +201,5 @@ The expert evaluation pipeline (`AnnotationRunner.compare_with_expert`) utilizes
 ## 📚 References & Scientific Background
 
 1. **Lahnala, A., Neuendorf, B., Thomin, A., Welch, C., Stibane, T., & Flek, L. (2024)**. *Appraisal Framework for Clinical Empathy: A Novel Application to Breaking Bad News Conversations*. In Proceedings of LREC-COLING 2024.
-2. **Pounds, G. (2011)**. *Appraisal Framework for Clinical Empathy*.
+2. **Pounds, G. (2011)**. *Empathy as 'appraisal': A new language-based approach to the analysis of clinical discourse*. Text & Talk, 31(2), 139-162.
 3. **Baile, W. F., et al. (2000)**. *SPIKES—A Six-Step Protocol for Delivering Bad News: Application to the Patient with Cancer*. The Oncologist, 5(4), 302-311.

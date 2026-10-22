@@ -9,6 +9,7 @@ from datetime import datetime
 from .base import AgentConfig, AnnotationResult, TurnAnnotation, SpanAnnotation
 from .react_agent import ReActAnnotationAgent
 from .multi_agent import MultiAgentSystem
+from .evaluation import solve_max_weight_matching, span_iou
 
 AgentType = Literal["react", "multi_agent"]
 
@@ -22,6 +23,8 @@ class AnnotationRunner:
         provider: str = "openai",
         model: Optional[str] = None,
         api_key: Optional[str] = None,
+        use_critic: bool = True,
+        use_coordinator: bool = False,
         **config_kwargs
     ):
         normalized_agent_type = "multi_agent" if agent_type in ("multi", "multi_agent") else "react"
@@ -42,7 +45,8 @@ class AnnotationRunner:
         if self.agent_type == "react":
             self.agent = ReActAnnotationAgent(self.config)
         else:
-            self.agent = MultiAgentSystem(self.config)
+            self.agent = MultiAgentSystem(
+                self.config, use_critic=use_critic, use_coordinator=use_coordinator)
 
     def annotate_file(
         self,
@@ -85,92 +89,14 @@ class AnnotationRunner:
 
     @staticmethod
     def _solve_max_weight_bipartite_matching(weights: List[List[float]]) -> List[Tuple[int, int]]:
-        """Find maximum weight 1-to-1 bipartite matching using Hungarian algorithm.
-        
-        Guarantees globally optimal assignment, maximizing cardinal matches (TP) first
-        and sum of IoU second, resolving all greedy assignment anomalies.
-        """
-        if not weights or not weights[0]:
-            return []
-
-        n = len(weights)
-        m = len(weights[0])
-
-        # Attempt scipy first if available
-        try:
-            from scipy.optimize import linear_sum_assignment
-            import numpy as np
-
-            cost_matrix = -np.array(weights, dtype=float)
-            row_ind, col_ind = linear_sum_assignment(cost_matrix)
-            matches = []
-            for r, c in zip(row_ind, col_ind):
-                if weights[r][c] > 0:
-                    matches.append((int(r), int(c)))
-            return sorted(matches)
-        except Exception:
-            pass
-
-        # Pure-Python Kuhn-Munkres implementation (zero external dependency fallback)
-        dim = max(n, m)
-        cost = [[0.0] * dim for _ in range(dim)]
-        for i in range(n):
-            for j in range(m):
-                cost[i][j] = float(weights[i][j])
-
-        u = [0.0] * (dim + 1)
-        v = [0.0] * (dim + 1)
-        p = [0] * (dim + 1)
-        way = [0] * (dim + 1)
-        neg_cost = [[-cost[i][j] for j in range(dim)] for i in range(dim)]
-
-        for i in range(1, dim + 1):
-            p[0] = i
-            j0 = 0
-            minv = [float('inf')] * (dim + 1)
-            used = [False] * (dim + 1)
-            while True:
-                used[j0] = True
-                i0 = p[j0]
-                delta = float('inf')
-                j1 = 0
-                for j in range(1, dim + 1):
-                    if not used[j]:
-                        cur = neg_cost[i0 - 1][j - 1] - u[i0] - v[j]
-                        if cur < minv[j]:
-                            minv[j] = cur
-                            way[j] = j0
-                        if minv[j] < delta:
-                            delta = minv[j]
-                            j1 = j
-                for j in range(dim + 1):
-                    if used[j]:
-                        u[p[j]] += delta
-                        v[j] -= delta
-                    else:
-                        minv[j] -= delta
-                j0 = j1
-                if p[j0] == 0:
-                    break
-            while True:
-                j1 = way[j0]
-                p[j0] = p[j1]
-                j0 = j1
-                if j0 == 0:
-                    break
-
-        matches = []
-        for j in range(1, m + 1):
-            i = p[j]
-            if i != 0 and i - 1 < n and weights[i - 1][j - 1] > 0:
-                matches.append((i - 1, j - 1))
-        return sorted(matches)
+        """Globally optimal 1-to-1 matching (delegates to :mod:`agents.evaluation`)."""
+        return solve_max_weight_matching(weights)
 
     def compare_with_expert(
         self,
         agent_result: AnnotationResult,
         expert_file: Any,
-        min_iou_threshold: float = 0.0,
+        min_iou_threshold: float = 0.5,
         exact_match: bool = False,
     ) -> Dict[str, Any]:
         """Compare agent annotations with expert ground-truth using 1-to-1 Maximum Bipartite Matching.
@@ -252,10 +178,7 @@ class AnnotationRunner:
                         if exact_match:
                             is_valid = (a_start == e_start and a_end == e_end)
                         else:
-                            if min_iou_threshold == 0.0:
-                                is_valid = (iou > 0.0)
-                            else:
-                                is_valid = (iou >= min_iou_threshold)
+                            is_valid = iou > 0.0 and iou >= min_iou_threshold
 
                         if is_valid:
                             weight_matrix[i][j] = CARDINAL_WEIGHT + iou
@@ -326,20 +249,7 @@ class AnnotationRunner:
         span2: Tuple[int, int]
     ) -> float:
         """Calculate Intersection over Union for two character ranges."""
-        start1, end1 = span1
-        start2, end2 = span2
-
-        if start1 >= end1 or start2 >= end2:
-            return 0.0
-
-        intersection_start = max(start1, start2)
-        intersection_end = min(end1, end2)
-        intersection = max(0, intersection_end - intersection_start)
-
-        union = (end1 - start1) + (end2 - start2) - intersection
-        if union <= 0:
-            return 0.0
-        return intersection / union
+        return span_iou(span1, span2)
 
 
 def annotate_conversation(
@@ -380,3 +290,9 @@ def annotate_file(
     if output_path:
         runner.save_result(result, output_path)
     return result
+
+
+if __name__ == "__main__":  # pragma: no cover
+    from .cli import main
+
+    raise SystemExit(main())

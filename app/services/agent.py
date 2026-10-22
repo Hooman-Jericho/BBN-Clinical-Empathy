@@ -1,8 +1,11 @@
 """AI agent integration services with database tracking."""
 
+import logging
 import os
 import streamlit as st
 from config import USE_DATABASE
+
+logger = logging.getLogger(__name__)
 
 
 def get_agent_runner():
@@ -115,6 +118,7 @@ def agent_result_to_suggestions(agent_result, turn_id: int):
                                 model=model,
                             )
             except Exception:
-                pass
+                # Persistence is best-effort, but a failure must never be invisible.
+                logger.warning("Could not persist AI suggestions for review tracking", exc_info=True)
 
     return suggestions

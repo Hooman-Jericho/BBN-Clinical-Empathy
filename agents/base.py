@@ -98,8 +98,16 @@ class TurnAnnotation:
     spans: List[SpanAnnotation] = field(default_factory=list)
     relations: List[RelationAnnotation] = field(default_factory=list)
     reasoning_steps: List[Any] = field(default_factory=list)
+    # Parse/validation diagnostics: {"status": "ok"|"parse_failed"|..., "stats": {...}}
+    diagnostics: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
+        data = self._to_dict_core()
+        if self.diagnostics:
+            data["diagnostics"] = self.diagnostics
+        return data
+
+    def _to_dict_core(self) -> Dict[str, Any]:
         return {
             "turn_id": self.turn_id,
             "speaker": self.speaker.value if isinstance(self.speaker, Speaker) else str(self.speaker),
@@ -137,6 +145,7 @@ class TurnAnnotation:
             spans=[SpanAnnotation.from_dict(s) for s in spans_raw if isinstance(s, dict)],
             relations=[RelationAnnotation.from_dict(r) for r in relations_raw if isinstance(r, dict)],
             reasoning_steps=data.get("reasoning_steps", []),
+            diagnostics=data.get("diagnostics", {}) or {},
         )
 
 
@@ -184,6 +193,10 @@ class AgentConfig:
     api_key: Optional[str] = None
     provider: Literal["openai", "anthropic"] = "openai"
 
+    # Reproducibility / output control
+    seed: Optional[int] = None  # forwarded to OpenAI; Anthropic has no seed parameter
+    json_mode: bool = False  # OpenAI response_format={"type": "json_object"} (model must support it)
+
     # Agent behavior
     include_reasoning: bool = True
 
@@ -193,6 +206,8 @@ class AgentConfig:
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
             "provider": self.provider,
+            "seed": self.seed,
+            "json_mode": self.json_mode,
             "include_reasoning": self.include_reasoning,
         }
 

@@ -1,41 +1,45 @@
-"""Multi-Agent Annotation System with Coordinator, Specialists, and Consensus Critic."""
+"""Multi-agent annotation system: specialists, optional coordinator, optional critic.
+
+Changes: all components share one :class:`LLMClient` (single retry/usage implementation), the
+critic can reject *every* proposal, unusable critic output is flagged instead of silently
+replaced, coordinator guidance is actually passed to the specialists (and the coordinator call is
+optional - it used to cost one LLM call per turn for nothing), and every parse problem is counted.
+"""
 
 import json
 import logging
-from typing import List, Dict, Optional, Any
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional
 
 from .base import (
+    SPIKES_STAGES,
     AgentConfig,
     AnnotationResult,
-    TurnAnnotation,
-    SpanAnnotation,
     RelationAnnotation,
     Speaker,
-    generate_span_id,
-    PATIENT_LABELS,
-    CLINICIAN_LABELS,
-    SPIKES_STAGES,
+    TurnAnnotation,
 )
+from .jsonutil import extract_json_from_text
+from .llm import LLMClient
 from .prompts import (
     EO_DETECTOR_PROMPT,
-    RESPONSE_CLASSIFIER_PROMPT,
-    SPIKES_TAGGER_PROMPT,
-    RELATION_LINKER_PROMPT,
     MULTI_AGENT_COORDINATOR_PROMPT,
     MULTI_AGENT_USER_PROMPT_TEMPLATE,
-    SPIKES_USER_PROMPT_TEMPLATE,
+    RELATION_LINKER_PROMPT,
     RELATION_USER_PROMPT_TEMPLATE,
+    RESPONSE_CLASSIFIER_PROMPT,
+    SPIKES_TAGGER_PROMPT,
+    SPIKES_USER_PROMPT_TEMPLATE,
 )
-from .schemas import (
-    CoordinatorPlanSchema,
-    CriticReviewSchema,
-    SpanPredictionSchema,
-    RelationListSchema,
+from .schemas import CoordinatorPlanSchema
+from .validation import (
+    ParseStats,
+    build_relations,
+    build_spans,
+    select_critic_spans,
 )
-from .react_agent import extract_json_from_text, resolve_span_coordinates
 
 logger = logging.getLogger(__name__)
 
@@ -60,108 +64,71 @@ class AgentMessage:
 
 
 class BaseLLMAgent:
-    """Base class for specialist LLM agents."""
+    """Base class for specialist LLM agents (shares one LLMClient per system)."""
 
     def __init__(
         self,
         role: AgentRole,
         system_prompt: str,
-        config: AgentConfig
+        config: AgentConfig,
+        llm: Optional[LLMClient] = None,
     ):
         self.role = role
         self.system_prompt = system_prompt
         self.config = config
-        self._client = None
-
-    def _get_client(self):
-        if self._client is None:
-            if self.config.provider == "openai":
-                from openai import OpenAI
-                self._client = OpenAI(api_key=self.config.api_key)
-            elif self.config.provider == "anthropic":
-                from anthropic import Anthropic
-                self._client = Anthropic(api_key=self.config.api_key)
-        return self._client
+        self.llm = llm or LLMClient(config)
 
     def _call_llm(self, user_prompt: str, max_retries: int = 2) -> str:
-        client = self._get_client()
-        last_error = None
-
-        for attempt in range(max_retries + 1):
-            try:
-                if self.config.provider == "openai":
-                    response = client.chat.completions.create(
-                        model=self.config.model,
-                        messages=[
-                            {"role": "system", "content": self.system_prompt},
-                            {"role": "user", "content": user_prompt},
-                        ],
-                        temperature=self.config.temperature,
-                        max_tokens=self.config.max_tokens,
-                    )
-                    return response.choices[0].message.content or ""
-
-                elif self.config.provider == "anthropic":
-                    response = client.messages.create(
-                        model=self.config.model,
-                        max_tokens=self.config.max_tokens,
-                        system=self.system_prompt,
-                        messages=[
-                            {"role": "user", "content": user_prompt},
-                        ],
-                    )
-                    return response.content[0].text if response.content else ""
-
-                raise ValueError(f"Unknown provider: {self.config.provider}")
-
-            except Exception as e:
-                last_error = e
-                err_msg = str(e).lower()
-                if "authentication" in err_msg or "api key" in err_msg or "unauthorized" in err_msg:
-                    raise RuntimeError(
-                        f"LLM Provider Authentication Failure ({self.config.provider}): {e}. "
-                        f"Verify your {self.config.provider.upper()}_API_KEY."
-                    ) from e
-
-                if attempt < max_retries:
-                    import time
-                    time.sleep(0.5 * (2 ** attempt))
-                    continue
-
-        raise RuntimeError(
-            f"LLM Specialist Error ({self.role.value}, provider: {self.config.provider}, model '{self.config.model}') after {max_retries + 1} attempts: {last_error}"
-        ) from last_error
+        try:
+            return self.llm.chat(self.system_prompt, user_prompt, max_retries=max_retries)
+        except RuntimeError as exc:
+            raise RuntimeError(f"[{self.role.value}] {exc}") from exc
 
     def _parse_json(self, response: str) -> Dict[str, Any]:
         return extract_json_from_text(response)
 
+    def _annotations_from(self, resp: str, stats: Optional[ParseStats]) -> List[Dict[str, Any]]:
+        """Raw span dicts from a specialist; label/speaker checks happen in ``build_spans``."""
+        parsed = self._parse_json(resp)
+        if not parsed:
+            if stats is not None:
+                stats.json_failures += 1
+            return []
+        raw = parsed.get("annotations", [])
+        if not isinstance(raw, list):
+            if stats is not None:
+                stats.schema_failures += 1
+            return []
+        return [a for a in raw if isinstance(a, dict)]
+
 
 class CoordinatorAgent(BaseLLMAgent):
-    """Coordinator that orchestrates specialist dispatching based on conversation dynamics."""
+    """Optional coordinator that produces guidance for the specialists."""
 
-    def __init__(self, config: AgentConfig):
-        super().__init__(
-            role=AgentRole.COORDINATOR,
-            system_prompt=MULTI_AGENT_COORDINATOR_PROMPT,
-            config=config,
-        )
+    def __init__(self, config: AgentConfig, llm: Optional[LLMClient] = None):
+        super().__init__(AgentRole.COORDINATOR, MULTI_AGENT_COORDINATOR_PROMPT, config, llm)
 
-    def plan_turn(self, turn: Dict[str, Any], context: str) -> CoordinatorPlanSchema:
-        """Analyze turn and return structured dispatch plan."""
+    def plan_turn(
+        self, turn: Dict[str, Any], context: str, stats: Optional[ParseStats] = None
+    ) -> CoordinatorPlanSchema:
         speaker = turn.get("speaker", "patient").lower()
         prompt = (
-            f"Formulate an orchestration plan for this turn:\n"
+            "Formulate an orchestration plan for this turn:\n"
             f"Speaker: {speaker}\nText: \"{turn.get('text', '')}\"\n"
             f"Context: {context if context else 'Initial turn.'}\n\n"
-            f"Return JSON adhering to schema:\n"
-            f'{{"speaker_role": "{speaker}", "active_specialists": ["..."], "coordination_strategy": "..."}}'
+            "Return JSON adhering to schema:\n"
+            f'{{"speaker_role": "{speaker}", "active_specialists": ["..."], '
+            '"coordination_strategy": "..."}'
         )
-        resp = self._call_llm(prompt)
-        parsed = self._parse_json(resp)
+        parsed = self._parse_json(self._call_llm(prompt))
         try:
             return CoordinatorPlanSchema.model_validate(parsed)
-        except Exception:
-            specialists = ["eo_detector"] if "patient" in speaker else ["response_classifier", "spikes_tagger"]
+        except Exception:  # noqa: BLE001 - pydantic ValidationError or non-dict input
+            if stats is not None:
+                stats.schema_failures += 1
+            logger.warning("Coordinator returned an unusable plan; using the default plan.")
+            specialists = (["eo_detector"] if "patient" in speaker
+                           else ["response_classifier", "spikes_tagger"])
             return CoordinatorPlanSchema(
                 speaker_role=speaker,
                 active_specialists=specialists,
@@ -172,261 +139,216 @@ class CoordinatorAgent(BaseLLMAgent):
 class EODetectorAgent(BaseLLMAgent):
     """Specialist agent for detecting patient Empathic Opportunities (EOs)."""
 
-    def __init__(self, config: AgentConfig):
-        super().__init__(
-            role=AgentRole.EO_DETECTOR,
-            system_prompt=EO_DETECTOR_PROMPT,
-            config=config,
-        )
+    def __init__(self, config: AgentConfig, llm: Optional[LLMClient] = None):
+        super().__init__(AgentRole.EO_DETECTOR, EO_DETECTOR_PROMPT, config, llm)
 
-    def process(self, turn: Dict[str, Any], context: str) -> List[Dict[str, Any]]:
-        user_prompt = MULTI_AGENT_USER_PROMPT_TEMPLATE.format(
-            turn_id=turn.get("turn_id", 0),
-            speaker="patient",
-            text=turn.get("text", ""),
-            context=context,
-        )
-        resp = self._call_llm(user_prompt)
-        parsed = self._parse_json(resp)
-        annotations = []
-        for ann in parsed.get("annotations", []):
-            if isinstance(ann, dict) and ann.get("label") in PATIENT_LABELS:
-                annotations.append(ann)
-        return annotations
+    def process(self, turn: Dict[str, Any], context: str,
+                stats: Optional[ParseStats] = None) -> List[Dict[str, Any]]:
+        prompt = MULTI_AGENT_USER_PROMPT_TEMPLATE.format(
+            turn_id=turn.get("turn_id", 0), speaker="patient",
+            text=turn.get("text", ""), context=context)
+        return self._annotations_from(self._call_llm(prompt), stats)
 
 
 class ResponseClassifierAgent(BaseLLMAgent):
     """Specialist agent for classifying clinician responses and elicitations."""
 
-    def __init__(self, config: AgentConfig):
-        super().__init__(
-            role=AgentRole.RESPONSE_CLASSIFIER,
-            system_prompt=RESPONSE_CLASSIFIER_PROMPT,
-            config=config,
-        )
+    def __init__(self, config: AgentConfig, llm: Optional[LLMClient] = None):
+        super().__init__(AgentRole.RESPONSE_CLASSIFIER, RESPONSE_CLASSIFIER_PROMPT, config, llm)
 
-    def process(self, turn: Dict[str, Any], context: str) -> List[Dict[str, Any]]:
-        user_prompt = MULTI_AGENT_USER_PROMPT_TEMPLATE.format(
-            turn_id=turn.get("turn_id", 0),
-            speaker="clinician",
-            text=turn.get("text", ""),
-            context=context,
-        )
-        resp = self._call_llm(user_prompt)
-        parsed = self._parse_json(resp)
-        annotations = []
-        for ann in parsed.get("annotations", []):
-            if isinstance(ann, dict) and ann.get("label") in CLINICIAN_LABELS:
-                annotations.append(ann)
-        return annotations
+    def process(self, turn: Dict[str, Any], context: str,
+                stats: Optional[ParseStats] = None) -> List[Dict[str, Any]]:
+        prompt = MULTI_AGENT_USER_PROMPT_TEMPLATE.format(
+            turn_id=turn.get("turn_id", 0), speaker="clinician",
+            text=turn.get("text", ""), context=context)
+        return self._annotations_from(self._call_llm(prompt), stats)
 
 
 class SPIKESTaggerAgent(BaseLLMAgent):
     """Specialist agent for identifying SPIKES protocol stages."""
 
-    def __init__(self, config: AgentConfig):
-        super().__init__(
-            role=AgentRole.SPIKES_TAGGER,
-            system_prompt=SPIKES_TAGGER_PROMPT,
-            config=config,
-        )
+    def __init__(self, config: AgentConfig, llm: Optional[LLMClient] = None):
+        super().__init__(AgentRole.SPIKES_TAGGER, SPIKES_TAGGER_PROMPT, config, llm)
 
-    def process(self, turn: Dict[str, Any], context: str) -> Optional[str]:
-        user_prompt = SPIKES_USER_PROMPT_TEMPLATE.format(
-            turn_id=turn.get("turn_id", 0),
-            text=turn.get("text", ""),
-            context=context,
-        )
-        resp = self._call_llm(user_prompt)
-        parsed = self._parse_json(resp)
+    def process(self, turn: Dict[str, Any], context: str,
+                stats: Optional[ParseStats] = None) -> Optional[str]:
+        prompt = SPIKES_USER_PROMPT_TEMPLATE.format(
+            turn_id=turn.get("turn_id", 0), text=turn.get("text", ""), context=context)
+        parsed = self._parse_json(self._call_llm(prompt))
+        if not parsed:
+            if stats is not None:
+                stats.json_failures += 1
+            return None
         stage = parsed.get("spikes_stage")
-        if stage and str(stage).lower() in SPIKES_STAGES:
+        if stage is None:
+            return None
+        if str(stage).lower() in SPIKES_STAGES:
             return str(stage).lower()
+        if stats is not None:
+            stats.spikes_invalid += 1
         return None
 
 
 class CriticConsensusAgent(BaseLLMAgent):
-    """Critic and consensus agent that cross-examines specialist proposals to eliminate errors and overlaps."""
+    """Cross-examines specialist proposals. It may reject all of them."""
 
-    def __init__(self, config: AgentConfig):
+    def __init__(self, config: AgentConfig, llm: Optional[LLMClient] = None):
         system_prompt = (
             "You are the Lead Clinical Consensus Critic in a multi-agent annotation system.\n"
-            "Your role is to rigorously evaluate candidate span annotations proposed by specialist agents.\n"
-            "Tasks:\n"
-            "1. Eliminate false positives that do not strictly meet appraisal criteria.\n"
-            "2. Resolve overlapping spans and ensure boundaries align with exact semantic units.\n"
-            "3. Confirm label consistency with the speaker's role.\n"
-            "Output JSON with approved_spans, rejected_spans, and critic_notes."
+            "Rigorously evaluate candidate span annotations proposed by specialist agents.\n"
+            "1. Remove false positives that do not strictly meet the appraisal criteria.\n"
+            "2. Resolve overlapping spans; boundaries must be exact semantic units.\n"
+            "3. Confirm the label is consistent with the speaker's role.\n"
+            "You may ONLY approve spans that were proposed. Returning an empty approved_spans "
+            "list is correct when no proposal is valid.\n"
+            'Output JSON: {"approved_spans": [...], "rejected_spans": [...], "critic_notes": "..."}'
         )
-        super().__init__(
-            role=AgentRole.CRITIC_CONSENSUS,
-            system_prompt=system_prompt,
-            config=config,
-        )
+        super().__init__(AgentRole.CRITIC_CONSENSUS, system_prompt, config, llm)
 
     def evaluate_proposals(
         self,
         turn: Dict[str, Any],
         proposed_spans: List[Dict[str, Any]],
         context: str,
+        stats: Optional[ParseStats] = None,
     ) -> List[Dict[str, Any]]:
-        """Cross-examine candidate spans and return verified consensus list."""
+        """Return the approved spans. Unusable critic output falls back to the proposals but is
+        counted in ``stats.critic_fallbacks`` so it is visible in the diagnostics."""
         if not proposed_spans:
             return []
+        stats = stats if stats is not None else ParseStats()
 
         prompt = (
             f"Turn {turn.get('turn_id', 0)} ({turn.get('speaker', '')}): \"{turn.get('text', '')}\"\n"
             f"Context: {context}\n"
             f"Specialist Proposed Spans: {json.dumps(proposed_spans, indent=2)}\n\n"
-            f"Evaluate proposals and return JSON: {{\"approved_spans\": [...], \"rejected_spans\": [...], \"critic_notes\": \"...\"}}"
+            'Return JSON: {"approved_spans": [...], "rejected_spans": [...], "critic_notes": "..."}'
         )
-
-        resp = self._call_llm(prompt)
-        parsed = self._parse_json(resp)
-        try:
-            review = CriticReviewSchema.model_validate(parsed)
-            if review.approved_spans:
-                return [s.model_dump() for s in review.approved_spans]
-        except Exception:
-            pass
-
-        # Fallback to proposed if critic was unavailable
-        return proposed_spans
+        parsed = self._parse_json(self._call_llm(prompt))
+        approved = select_critic_spans(parsed, proposed_spans, stats)
+        if approved is None:
+            logger.warning("Critic output unusable for turn %s; keeping specialist proposals.",
+                           turn.get("turn_id"))
+            return proposed_spans
+        return approved
 
 
 class RelationLinkerAgent(BaseLLMAgent):
-    """Specialist agent for linking EOs to clinician responses."""
+    """Specialist agent for linking clinician spans to patient EOs."""
 
-    def __init__(self, config: AgentConfig):
-        super().__init__(
-            role=AgentRole.RELATION_LINKER,
-            system_prompt=RELATION_LINKER_PROMPT,
-            config=config,
-        )
+    def __init__(self, config: AgentConfig, llm: Optional[LLMClient] = None):
+        super().__init__(AgentRole.RELATION_LINKER, RELATION_LINKER_PROMPT, config, llm)
 
     def link(
         self,
         patient_eos: List[Dict],
         clinician_responses: List[Dict],
         turns: List[Dict],
+        stats: Optional[ParseStats] = None,
     ) -> List[RelationAnnotation]:
         if not patient_eos or not clinician_responses:
             return []
-
-        summary = "\n".join([f"T{t.get('turn_id')}: {t.get('text')[:100]}" for t in turns])
+        stats = stats if stats is not None else ParseStats()
+        summary = "\n".join(f"T{t.get('turn_id')}: {str(t.get('text', ''))[:100]}" for t in turns)
         prompt = RELATION_USER_PROMPT_TEMPLATE.format(
             patient_eos=json.dumps(patient_eos, indent=2),
             clinician_responses=json.dumps(clinician_responses, indent=2),
-            conversation=summary,
+            conversation=summary)
+        parsed = self._parse_json(self._call_llm(prompt))
+        return build_relations(
+            parsed,
+            {e["span_id"] for e in patient_eos},
+            {c["span_id"] for c in clinician_responses},
+            stats,
         )
-
-        resp = self._call_llm(prompt)
-        parsed = self._parse_json(resp)
-        relations = []
-        try:
-            validated = RelationListSchema.model_validate(parsed)
-            for r in validated.relations:
-                relations.append(RelationAnnotation(
-                    from_span_id=r.from_span_id,
-                    to_span_id=r.to_span_id,
-                    relation_type=r.relation_type,
-                ))
-        except Exception:
-            pass
-        return relations
 
 
 class MultiAgentSystem:
-    """True Multi-Agent System orchestrating Coordinator, Specialists, and Consensus Critic."""
+    """Specialists + (optional) coordinator + (optional) critic.
 
-    def __init__(self, config: Optional[AgentConfig] = None):
+    ``use_critic`` / ``use_coordinator`` exist so that each component can be ablated and its
+    cost/benefit measured. The coordinator is OFF by default: its plan used to be discarded.
+    """
+
+    def __init__(
+        self,
+        config: Optional[AgentConfig] = None,
+        use_critic: bool = True,
+        use_coordinator: bool = False,
+    ):
         self.config = config or AgentConfig()
-        self.coordinator = CoordinatorAgent(self.config)
-        self.eo_detector = EODetectorAgent(self.config)
-        self.response_classifier = ResponseClassifierAgent(self.config)
-        self.spikes_tagger = SPIKESTaggerAgent(self.config)
-        self.critic = CriticConsensusAgent(self.config)
-        self.relation_linker = RelationLinkerAgent(self.config)
+        self.use_critic = use_critic
+        self.use_coordinator = use_coordinator
+        self.llm = LLMClient(self.config)  # one client => one usage counter for the whole system
+        self.coordinator = CoordinatorAgent(self.config, self.llm)
+        self.eo_detector = EODetectorAgent(self.config, self.llm)
+        self.response_classifier = ResponseClassifierAgent(self.config, self.llm)
+        self.spikes_tagger = SPIKESTaggerAgent(self.config, self.llm)
+        self.critic = CriticConsensusAgent(self.config, self.llm)
+        self.relation_linker = RelationLinkerAgent(self.config, self.llm)
+
+    def usage(self) -> Dict[str, int]:
+        return self.llm.usage()
 
     def _process_turn(
         self,
         turn: Dict[str, Any],
         context: str,
         parallel: bool = True,
+        stats: Optional[ParseStats] = None,
     ) -> TurnAnnotation:
         turn_id = turn.get("turn_id", 0)
         speaker_str = turn.get("speaker", "patient").lower()
         speaker = Speaker.CLINICIAN if "clinician" in speaker_str else Speaker.PATIENT
         text = turn.get("text", "")
+        turn_stats = ParseStats()
+        notes: List[str] = []
 
-        # 1. Coordinator plans dispatch
-        plan = self.coordinator.plan_turn(turn, context)
+        spec_context = context
+        if self.use_coordinator:
+            plan = self.coordinator.plan_turn(turn, context, turn_stats)
+            spec_context = f"{context}\nCoordinator guidance: {plan.coordination_strategy}"
+            notes.append(f"Coordinator Plan: {plan.coordination_strategy}")
 
-        proposals = []
-        spikes_stage = None
-
-        # 2. Specialist execution
+        spikes_stage: Optional[str] = None
         if speaker == Speaker.PATIENT:
-            proposals = self.eo_detector.process(turn, context)
+            proposals = self.eo_detector.process(turn, spec_context, turn_stats)
         else:
+            s_resp, s_spikes = ParseStats(), ParseStats()  # per-thread counters, merged below
             if parallel:
                 with ThreadPoolExecutor(max_workers=2) as executor:
-                    f_resp = executor.submit(self.response_classifier.process, turn, context)
-                    f_spikes = executor.submit(self.spikes_tagger.process, turn, context)
+                    f_resp = executor.submit(self.response_classifier.process, turn, spec_context, s_resp)
+                    f_spikes = executor.submit(self.spikes_tagger.process, turn, spec_context, s_spikes)
                     proposals = f_resp.result()
                     spikes_stage = f_spikes.result()
             else:
-                proposals = self.response_classifier.process(turn, context)
-                spikes_stage = self.spikes_tagger.process(turn, context)
+                proposals = self.response_classifier.process(turn, spec_context, s_resp)
+                spikes_stage = self.spikes_tagger.process(turn, spec_context, s_spikes)
+            turn_stats.merge(s_resp).merge(s_spikes)
 
-        # 3. Consensus Critic evaluates and filters proposals
-        consensus_spans = self.critic.evaluate_proposals(turn, proposals, context)
+        if self.use_critic:
+            consensus = self.critic.evaluate_proposals(turn, proposals, spec_context, turn_stats)
+        else:
+            consensus = proposals
 
-        # 4. Convert and disambiguate coordinates
-        validated_spans = self._convert_annotations(consensus_spans, turn_id, text)
+        spans = build_spans(consensus, turn_id, text, speaker, turn_stats)
+
+        status = "parse_failed" if turn_stats.json_failures and not proposals else "ok"
+        if status != "ok" or turn_stats.problems:
+            logger.warning("Turn %s: status=%s problems=%s", turn_id, status, turn_stats.nonzero())
+        if stats is not None:
+            stats.merge(turn_stats)
 
         return TurnAnnotation(
             turn_id=turn_id,
             speaker=speaker,
             text=text,
             spikes_stage=spikes_stage,
-            spans=validated_spans,
+            spans=spans,
             relations=[],
-            reasoning_steps=[f"Coordinator Plan: {plan.coordination_strategy}"],
+            reasoning_steps=notes,
+            diagnostics={"status": status, "stats": turn_stats.nonzero()},
         )
-
-    def _convert_annotations(
-        self,
-        raw_annotations: List[Dict],
-        turn_id: int,
-        text: str,
-    ) -> List[SpanAnnotation]:
-        spans = []
-        for i, ann in enumerate(raw_annotations):
-            span_text = ann.get("text", "").strip()
-            if not span_text or span_text not in text:
-                continue
-
-            raw_start = ann.get("start", 0)
-            raw_end = ann.get("end", len(span_text))
-            start, end = resolve_span_coordinates(text, span_text, raw_start, raw_end)
-
-            confidence = ann.get("confidence", 0.9)
-            if isinstance(confidence, (int, float)):
-                confidence = float(confidence)
-            else:
-                confidence = None
-
-            spans.append(SpanAnnotation(
-                span_id=generate_span_id(turn_id, i),
-                text=text[start:end] if 0 <= start < end <= len(text) else span_text,
-                start=start,
-                end=end,
-                label=ann.get("label", "unknown"),
-                reasoning=ann.get("reasoning", ""),
-                confidence=confidence,
-            ))
-        return spans
 
     def annotate_conversation(
         self,
@@ -436,32 +358,31 @@ class MultiAgentSystem:
     ) -> AnnotationResult:
         conversation_id = conversation.get("id", "unknown")
         turns = conversation.get("turns", [])
+        conv_stats = ParseStats()
 
         annotated_turns: List[TurnAnnotation] = []
-        all_patient_eos: List[Dict] = []
-        all_clinician_responses: List[Dict] = []
+        patient_eos: List[Dict] = []
+        clinician_spans: List[Dict] = []
 
         for i, turn in enumerate(turns):
             context = self._build_context(turns[:i])
-            turn_ann = self._process_turn(turn, context, parallel)
+            turn_ann = self._process_turn(turn, context, parallel, conv_stats)
             annotated_turns.append(turn_ann)
-
             for span in turn_ann.spans:
-                s_dict = {
-                    "turn_id": turn_ann.turn_id,
-                    "span_id": span.span_id,
-                    "text": span.text,
-                    "label": span.label,
-                }
-                if turn_ann.speaker == Speaker.PATIENT:
-                    all_patient_eos.append(s_dict)
-                else:
-                    all_clinician_responses.append(s_dict)
+                item = {"turn_id": turn_ann.turn_id, "span_id": span.span_id,
+                        "text": span.text, "label": span.label}
+                (patient_eos if turn_ann.speaker == Speaker.PATIENT else clinician_spans).append(item)
 
-        if include_relations and all_patient_eos and all_clinician_responses:
-            relations = self.relation_linker.link(all_patient_eos, all_clinician_responses, turns)
+        if include_relations and patient_eos and clinician_spans:
+            relations = self.relation_linker.link(patient_eos, clinician_spans, turns, conv_stats)
             self._attach_relations(annotated_turns, relations)
 
+        not_ok = sum(1 for t in annotated_turns if t.diagnostics.get("status") != "ok")
+        agents = ["eo_detector", "response_classifier", "spikes_tagger", "relation_linker"]
+        if self.use_critic:
+            agents.append("critic_consensus")
+        if self.use_coordinator:
+            agents.insert(0, "coordinator")
         return AnnotationResult(
             conversation_id=conversation_id,
             turns=annotated_turns,
@@ -469,7 +390,15 @@ class MultiAgentSystem:
             metadata={
                 "model": self.config.model,
                 "provider": self.config.provider,
-                "agents": ["coordinator", "eo_detector", "response_classifier", "spikes_tagger", "critic_consensus", "relation_linker"],
+                "temperature": self.config.temperature,
+                "seed": self.config.seed,
+                "agents": agents,
+                "diagnostics": {
+                    "turns_total": len(annotated_turns),
+                    "turns_not_ok": not_ok,
+                    "parse": conv_stats.nonzero(),
+                    "usage": self.llm.usage(),
+                },
             },
         )
 
@@ -482,15 +411,24 @@ class MultiAgentSystem:
     def _build_context(self, previous_turns: List[Dict], max_turns: int = 5) -> str:
         if not previous_turns:
             return "No previous context."
-        return "\n".join([f"{t.get('speaker', '').upper()}: {t.get('text', '')[:180]}" for t in previous_turns[-max_turns:]])
+        return "\n".join(
+            f"{t.get('speaker', '').upper()}: {t.get('text', '')[:180]}"
+            for t in previous_turns[-max_turns:]
+        )
 
 
 def create_multi_agent_system(
     provider: str = "openai",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
-    **kwargs
+    use_critic: bool = True,
+    use_coordinator: bool = False,
+    **kwargs,
 ) -> MultiAgentSystem:
     if model is None:
         model = "gpt-4o" if provider == "openai" else "claude-3-5-sonnet-20241022"
-    return MultiAgentSystem(AgentConfig(provider=provider, model=model, api_key=api_key, **kwargs))
+    return MultiAgentSystem(
+        AgentConfig(provider=provider, model=model, api_key=api_key, **kwargs),
+        use_critic=use_critic,
+        use_coordinator=use_coordinator,
+    )
