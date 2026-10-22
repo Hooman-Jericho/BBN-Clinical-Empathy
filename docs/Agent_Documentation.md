@@ -154,9 +154,8 @@ pip install -r requirements.txt
 **Dependencies:**
 ```
 streamlit>=1.28.0
-pandas>=2.0.0
-plotly>=5.18.0
-pypdf>=3.17.0
+pydantic>=2.0
+scipy>=1.10.0
 openai>=1.0.0
 anthropic>=0.18.0
 ```
@@ -273,19 +272,16 @@ result = system.annotate_conversation(conversation, parallel=True)
 ### Using the CLI
 
 ```bash
-# Basic usage
-python -m agents.runner data/samples/sample_conversation_1.json
-
-# With options
-python -m agents.runner input.json \
-    -t multi_agent \
-    -p anthropic \
-    -m claude-3-5-sonnet-20241022 \
-    -o output.json
-
-# Skip relation detection
-python -m agents.runner input.json --no-relations
+python -m agents validate data/samples                        # check data (no API key)
+python -m agents annotate conv.json -o out.json --agent react --temperature 0 --seed 1
+python -m agents evaluate --pred out.json --gold data/samples -o report.json
+python -m agents experiment --gold gold/ --runs 5 --agent multi_agent -o exp.json
 ```
+
+`evaluate` reports span P/R/F1 (exact, IoU>=0.5, IoU>=0.75), per-label F1, Cohen's kappa,
+SPIKES accuracy, relation F1 and bootstrap CIs. `experiment` repeats annotate+evaluate and
+reports mean/std over runs. Every annotation stores `diagnostics` (parse/schema failures,
+rejected spans, critic fallbacks, token usage).
 
 ---
 

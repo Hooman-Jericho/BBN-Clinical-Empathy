@@ -1,17 +1,27 @@
 """Pydantic schemas for structured LLM outputs, ReAct tools, and multi-agent consensus."""
 
 from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from .base import ALL_LABELS
 
 
 class SpanPredictionSchema(BaseModel):
-    """Pydantic model for a single predicted span."""
+    """A single predicted span. The label must be one of the framework's labels."""
     text: str = Field(description="Exact span substring from the turn text")
     start: int = Field(default=0, ge=0, description="Character start offset")
     end: int = Field(default=0, ge=0, description="Character end offset")
     label: str = Field(description="Clinical appraisal or elicitation/response label")
     reasoning: Optional[str] = Field(default="", description="Clinical rationale for this annotation")
-    confidence: Optional[float] = Field(default=0.9, ge=0.0, le=1.0, description="Confidence score")
+    # No fabricated default: None means "the model did not report a confidence".
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0, description="Confidence score")
+
+    @field_validator("label")
+    @classmethod
+    def _label_must_exist(cls, value: str) -> str:
+        if value not in ALL_LABELS:
+            raise ValueError(f"unknown label {value!r}")
+        return value
 
 
 class TurnAnnotationSchema(BaseModel):

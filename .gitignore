@@ -25,3 +25,6 @@ Thumbs.db
 *.db
 *.db-wal
 *.db-shm
+
+# Third-party PDFs must not be committed (copyright)
+docs/*.pdf

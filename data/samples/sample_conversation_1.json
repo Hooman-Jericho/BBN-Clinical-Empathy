@@ -44,8 +44,8 @@
           {
             "span_id": "el_1",
             "text": "how was that experience for you",
-            "start": 12,
-            "end": 43,
+            "start": 11,
+            "end": 42,
             "label": "direct_elicitation_appreciation",
             "attitude": "appreciation",
             "directness": "direct"
@@ -98,8 +98,8 @@
           {
             "span_id": "el_2",
             "text": "how much you'd like to know today",
-            "start": 43,
-            "end": 76,
+            "start": 49,
+            "end": 82,
             "label": "direct_elicitation_appreciation",
             "attitude": "appreciation",
             "directness": "direct"
@@ -179,8 +179,8 @@
           {
             "span_id": "eo_6",
             "text": "This can't be right. There must be some mistake",
-            "start": 40,
-            "end": 87,
+            "start": 48,
+            "end": 95,
             "label": "implicit_feeling",
             "attitude": "feeling",
             "explicitness": "implicit",
@@ -189,8 +189,8 @@
           {
             "span_id": "eo_7",
             "text": "I feel fine",
-            "start": 89,
-            "end": 100,
+            "start": 97,
+            "end": 108,
             "label": "explicit_feeling",
             "attitude": "feeling",
             "explicitness": "explicit"
